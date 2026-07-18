@@ -1,0 +1,257 @@
+-- 服务初始化
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- 自瞄状态变量
+local aimbotEnabled = false
+local lockedTarget = nil
+local connections = {}
+
+-- 预计算变量
+local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+-- 高亮实例（优化性能）
+local highlight = Instance.new("Highlight")
+highlight.Name = "AimbotLockHighlight"
+highlight.FillColor = Color3.fromRGB(255, 50, 50)
+highlight.FillTransparency = 0.5
+highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+highlight.OutlineTransparency = 0
+highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+highlight.Parent = nil
+
+-- 创建GUI开关（优化渲染）
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AimbotGUI"
+screenGui.Parent = game.CoreGui
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 120, 0, 40)
+frame.Position = UDim2.new(1, -130, 0, 10)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BorderSizePixel = 0
+frame.Parent = screenGui
+
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(1, 0, 1, 0)
+toggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+toggleButton.BorderSizePixel = 0
+toggleButton.Text = "🔒 自瞄:关"
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.TextSize = 14
+toggleButton.Parent = frame
+
+-- 玩家缓存（减少遍历次数）
+local validPlayers = {}
+local function updatePlayerCache()
+    table.clear(validPlayers)
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                validPlayers[#validPlayers + 1] = player
+            end
+        end
+    end
+end
+
+-- 切换自瞄状态（优化响应）
+local function toggleAimbot()
+    aimbotEnabled = not aimbotEnabled
+    
+    if aimbotEnabled then
+        lockedTarget = nil
+        toggleButton.Text = "🔒 LOCKING..."
+        toggleButton.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
+        updatePlayerCache() -- 预更新玩家缓存
+    else
+        if highlight then
+            highlight.Parent = nil
+        end
+        lockedTarget = nil
+        toggleButton.Text = "🔓 自瞄:开"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    end
+end
+
+toggleButton.MouseButton1Click:Connect(toggleAimbot)
+
+-- 零延迟目标查找
+local function findBestTarget()
+    if #validPlayers == 0 then return nil end
+    
+    local bestTarget = nil
+    local shortestDistance = math.huge
+    
+    for i = 1, #validPlayers do
+        local player = validPlayers[i]
+        local character = player.Character
+        if character and character.Parent then
+            local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+            if humanoidRootPart then
+                local screenPosition, onScreen = Camera:WorldToViewportPoint(humanoidRootPart.Position)
+                
+                if onScreen then
+                    local screenPoint = Vector2.new(screenPosition.X, screenPosition.Y)
+                    local distance = (screenPoint - screenCenter).Magnitude
+                    
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        bestTarget = character
+                    end
+                end
+            end
+        end
+    end
+    
+    return bestTarget
+end
+
+-- 强锁目标（零延迟锁定）
+local function lockTarget(target)
+    if not target then return false end
+    
+    local humanoidRootPart = target:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return false end
+    
+    lockedTarget = target
+    highlight.Parent = target
+    toggleButton.Text = "🔒 LOCKED"
+    toggleButton.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+    
+    return true
+end
+
+-- 零延迟自瞄（直接修改CFrame）
+local function updateAim()
+    if not aimbotEnabled or not LocalPlayer.Character then return end
+    
+    -- 如果没有锁定目标，立即查找
+    if not lockedTarget then
+        local target = findBestTarget()
+        if target then
+            lockTarget(target)
+        end
+        return
+    end
+    
+    -- 零延迟瞄准（直接设置CFrame）
+    local targetRoot = lockedTarget:FindFirstChild("HumanoidRootPart")
+    local localRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    
+    if targetRoot and localRoot then
+        -- 直接计算并设置CFrame（无插值，零延迟）
+        local targetPosition = targetRoot.Position
+        local newCFrame = CFrame.new(localRoot.Position, Vector3.new(targetPosition.X, localRoot.Position.Y, targetPosition.Z))
+        localRoot.CFrame = newCFrame
+        
+        -- 快速目标有效性检查
+        if not lockedTarget.Parent or not lockedTarget:FindFirstChild("Humanoid") or lockedTarget.Humanoid.Health <= 0 then
+            highlight.Parent = nil
+            lockedTarget = nil
+            toggleButton.Text = "🔒 LOCKING..."
+            toggleButton.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
+            updatePlayerCache()
+        end
+    else
+        highlight.Parent = nil
+        lockedTarget = nil
+        toggleButton.Text = "🔒 LOCKING..."
+        toggleButton.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
+        updatePlayerCache()
+    end
+end
+
+-- 处理角色移动（禁用自动旋转）
+local function handleCharacterMovement(character)
+    local humanoid = character:WaitForChild("Humanoid")
+    humanoid.AutoRotate = not aimbotEnabled
+end
+
+-- 玩家监控（优化性能）
+local function monitorPlayers()
+    local function onPlayerAdded(player)
+        if player == LocalPlayer then return end
+        
+        connections[#connections + 1] = player.CharacterAdded:Connect(function(character)
+            if aimbotEnabled then
+                updatePlayerCache()
+            end
+        end)
+        
+        connections[#connections + 1] = player.CharacterRemoving:Connect(function()
+            if lockedTarget and lockedTarget.Parent == player then
+                highlight.Parent = nil
+                lockedTarget = nil
+                if aimbotEnabled then
+                    toggleButton.Text = "🔒 LOCKING..."
+                    toggleButton.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
+                end
+            end
+            if aimbotEnabled then
+                updatePlayerCache()
+            end
+        end)
+    end
+    
+    -- 初始化现有玩家
+    for _, player in pairs(Players:GetPlayers()) do
+        onPlayerAdded(player)
+    end
+    
+    connections[#connections + 1] = Players.PlayerAdded:Connect(onPlayerAdded)
+end
+
+-- 使用最高优先级的循环（零延迟）
+connections[#connections + 1] = RunService.PreRender:Connect(updateAim)
+
+-- 初始化角色
+local function initCharacter()
+    if LocalPlayer.Character then
+        handleCharacterMovement(LocalPlayer.Character)
+    end
+end
+
+connections[#connections + 1] = LocalPlayer.CharacterAdded:Connect(initCharacter)
+initCharacter()
+
+-- 初始化玩家监控
+monitorPlayers()
+
+-- 预缓存玩家
+updatePlayerCache()
+
+-- 清理函数
+local function cleanup()
+    for _, conn in pairs(connections) do
+        conn:Disconnect()
+    end
+    table.clear(connections)
+    
+    if highlight then
+        highlight:Destroy()
+    end
+    
+    if screenGui then
+        screenGui:Destroy()
+    end
+end
+
+-- 游戏关闭时清理
+connections[#connections + 1] = game:GetService("LogService").MessageOut:Connect(function(message, messageType)
+    if messageType == Enum.MessageType.MessageWarning and message:find("Script timeout") then
+        cleanup()
+    end
+end)
+
+connections[#connections + 1] = LocalPlayer:GetPropertyChangedSignal("Parent"):Connect(function()
+    if not LocalPlayer.Parent then
+        cleanup()
+    end
+end)
+
+print("零延迟自瞄脚本已加载")
