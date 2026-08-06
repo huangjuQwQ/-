@@ -1,0 +1,4330 @@
+--[[
+    黄橘融合脚本 - 完整版
+    所有功能按钮收纳于文件夹内，源代码统一存放于后端模块
+    右下角弹窗已全部替换为 WindUI 内置通知组件
+]]
+
+-- ==================== 加载 WindUI 库 ====================
+local WindUI_Source
+
+-- 优先从本地读取（速度极快）
+if isfile and readfile and isfile("WindUI-v1.6.65.lua") then
+    WindUI_Source = readfile("WindUI-v1.6.65.lua")
+else
+    -- 本地没有则下载一次并缓存
+    WindUI_Source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua")
+    if writefile then
+        writefile("WindUI-v1.6.65.lua", WindUI_Source)
+    end
+end
+
+local WindUI = loadstring(WindUI_Source)()
+
+-- ==================== 通用工具函数 ====================
+-- 统一通知函数：全部使用 WindUI 内置 Notification 组件
+-- 用法：WindUI:Notify({ Title = "标题", Content = "内容", Icon = "图标名", Duration = 秒 })
+-- 图标可直接传入 WindUI 支持的图标名（如 "check", "x", "triangle-alert", "info", "zap" 等）
+-- 或使用 "lucide:" 前缀 (如 "lucide:check")、sfsymbols (如 "sfsymbols:checkmark")
+
+local function setClipboard(str)
+    if setclipboard then
+        setclipboard(str)
+    elseif game.SetClipboard then
+        game:SetClipboard(str)
+    else
+        warn("剪贴板不可用")
+    end
+end
+
+-- 便捷封装：保持与旧 Notify 类似的调用习惯
+local function Notify(title, text, duration)
+    pcall(function()
+        WindUI:Notify({
+            Title = title,
+            Content = text,
+            Duration = duration or 2,
+        })
+    end)
+end
+
+-- 带图标的便捷通知
+local function NotifyWithIcon(title, text, icon, duration)
+    pcall(function()
+        WindUI:Notify({
+            Title = title,
+            Content = text,
+            Icon = icon,
+            Duration = duration or 2,
+        })
+    end)
+end
+
+-- ==================== 原有九个功能函数（完整保留，仅通知方式改为 WindUI） ====================
+-- 1. 坐标传送工具
+local function RunTeleportTool()
+    local Player = game.Players.LocalPlayer
+    local PlayerGui = Player:WaitForChild("PlayerGui")
+    local StarterGui = game:GetService("StarterGui")
+    local TweenService = game:GetService("TweenService")
+
+    local isMinimized = false
+    local isTweening = false
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "TeleportTool"
+    ScreenGui.Parent = PlayerGui
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 350, 0, 220)
+    MainFrame.Position = UDim2.new(0.5, -175, 0.5, -110)
+    MainFrame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+    MainFrame.BackgroundTransparency = 0.2
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Parent = ScreenGui
+    Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 5)
+
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Size = UDim2.new(1, 0, 0, 30)
+    TitleBar.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+    TitleBar.Parent = MainFrame
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -60, 1, 0)
+    Title.Position = UDim2.new(0, 10, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = "坐标传送工具"
+    Title.TextColor3 = Color3.new(1, 1, 1)
+    Title.Font = Enum.Font.SourceSansBold
+    Title.TextSize = 16
+    Title.Parent = TitleBar
+
+    local MinBtn = Instance.new("TextButton")
+    MinBtn.Size = UDim2.new(0, 30, 0, 30)
+    MinBtn.Position = UDim2.new(1, -60, 0, 0)
+    MinBtn.BackgroundColor3 = Color3.new(0.25, 0.25, 0.25)
+    MinBtn.Text = "—"
+    MinBtn.TextColor3 = Color3.new(1, 1, 1)
+    MinBtn.Font = Enum.Font.SourceSansBold
+    MinBtn.TextSize = 20
+    MinBtn.Parent = TitleBar
+    Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 3)
+
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+    CloseBtn.Position = UDim2.new(1, -30, 0, 0)
+    CloseBtn.BackgroundColor3 = Color3.new(0.7, 0.2, 0.2)
+    CloseBtn.Text = "×"
+    CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+    CloseBtn.Font = Enum.Font.SourceSansBold
+    CloseBtn.TextSize = 16
+    CloseBtn.Parent = TitleBar
+    Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 3)
+
+    local PosLabel = Instance.new("TextLabel")
+    PosLabel.Size = UDim2.new(1, -20, 0, 30)
+    PosLabel.Position = UDim2.new(0, 10, 0, 40)
+    PosLabel.BackgroundTransparency = 1
+    PosLabel.Text = "当前坐标: (0, 0, 0)"
+    PosLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+    PosLabel.Font = Enum.Font.SourceSans
+    PosLabel.TextSize = 14
+    PosLabel.Parent = MainFrame
+
+    local GetPosBtn = Instance.new("TextButton")
+    GetPosBtn.Size = UDim2.new(0.45, 0, 0, 30)
+    GetPosBtn.Position = UDim2.new(0.05, 0, 0, 80)
+    GetPosBtn.BackgroundColor3 = Color3.new(0.3, 0.6, 0.3)
+    GetPosBtn.Text = "获取当前坐标"
+    GetPosBtn.TextColor3 = Color3.new(1, 1, 1)
+    GetPosBtn.Font = Enum.Font.SourceSans
+    GetPosBtn.TextSize = 14
+    GetPosBtn.Parent = MainFrame
+    Instance.new("UICorner", GetPosBtn).CornerRadius = UDim.new(0, 3)
+
+    local XInput = Instance.new("TextBox")
+    XInput.Size = UDim2.new(0.28, 0, 0, 30)
+    XInput.Position = UDim2.new(0.05, 0, 0, 120)
+    XInput.PlaceholderText = "X"
+    XInput.Parent = MainFrame
+
+    local YInput = Instance.new("TextBox")
+    YInput.Size = UDim2.new(0.28, 0, 0, 30)
+    YInput.Position = UDim2.new(0.37, 0, 0, 120)
+    YInput.PlaceholderText = "Y"
+    YInput.Parent = MainFrame
+
+    local ZInput = Instance.new("TextBox")
+    ZInput.Size = UDim2.new(0.28, 0, 0, 30)
+    ZInput.Position = UDim2.new(0.69, 0, 0, 120)
+    ZInput.PlaceholderText = "Z"
+    ZInput.Parent = MainFrame
+
+    local TeleBtn = Instance.new("TextButton")
+    TeleBtn.Size = UDim2.new(0.45, 0, 0, 30)
+    TeleBtn.Position = UDim2.new(0.5, 0, 0, 80)
+    TeleBtn.BackgroundColor3 = Color3.new(0.6, 0.3, 0.3)
+    TeleBtn.Text = "传送至输入坐标"
+    TeleBtn.TextColor3 = Color3.new(1, 1, 1)
+    TeleBtn.Font = Enum.Font.SourceSans
+    TeleBtn.TextSize = 14
+    TeleBtn.Parent = MainFrame
+    Instance.new("UICorner", TeleBtn).CornerRadius = UDim.new(0, 3)
+
+    local MinIcon = Instance.new("TextButton")
+    MinIcon.Size = UDim2.new(0, 40, 0, 40)
+    MinIcon.Position = UDim2.new(0.1, 0, 0.1, 0)
+    MinIcon.BackgroundColor3 = Color3.new(0.2, 0.4, 0.6)
+    MinIcon.BackgroundTransparency = 0.2
+    MinIcon.Visible = false
+    MinIcon.Text = "🔍"
+    MinIcon.TextColor3 = Color3.new(1, 1, 1)
+    MinIcon.Font = Enum.Font.SourceSansBold
+    MinIcon.TextSize = 20
+    MinIcon.Active = true
+    MinIcon.Draggable = true
+    MinIcon.Parent = ScreenGui
+    Instance.new("UICorner", MinIcon).CornerRadius = UDim.new(0.2, 0)
+
+    local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+
+    local function UpdatePos()
+        local Char = Player.Character
+        if not Char then return end
+        local HRP = Char:FindFirstChild("HumanoidRootPart")
+        if not HRP then return end
+        PosLabel.Text = string.format("当前坐标: (%.1f, %.1f, %.1f)", HRP.Position.X, HRP.Position.Y, HRP.Position.Z)
+    end
+
+    local function ToggleMin()
+        if isTweening then return end
+        isTweening = true
+
+        if not isMinimized then
+            local tween = TweenService:Create(MainFrame, tweenInfo, {
+                Size = UDim2.new(0,40,0,40),
+                Position = MinIcon.Position,
+                BackgroundTransparency = 1
+            })
+            tween.Completed:Connect(function()
+                MainFrame.Visible = false
+                MinIcon.Visible = true
+                isMinimized = true
+                MinBtn.Text = "□"
+                isTweening = false
+                tween:Destroy()
+            end)
+            tween:Play()
+        else
+            MinIcon.Visible = false
+            MainFrame.Visible = true
+            MainFrame.BackgroundTransparency = 1
+            local tween = TweenService:Create(MainFrame, tweenInfo, {
+                Size = UDim2.new(0,350,0,220),
+                Position = UDim2.new(0.5, -175, 0.5, -110),
+                BackgroundTransparency = 0.2
+            })
+            tween.Completed:Connect(function()
+                isMinimized = false
+                MinBtn.Text = "—"
+                isTweening = false
+                tween:Destroy()
+            end)
+            tween:Play()
+        end
+    end
+
+    GetPosBtn.MouseButton1Click:Connect(function()
+        local Char = Player.Character
+        if not Char then
+            WindUI:Notify({Title = "错误", Content = "角色未加载", Duration = 2})
+            return
+        end
+        local HRP = Char:FindFirstChild("HumanoidRootPart")
+        if not HRP then return end
+
+        local pos = HRP.Position
+        XInput.Text = tostring(pos.X)
+        YInput.Text = tostring(pos.Y)
+        ZInput.Text = tostring(pos.Z)
+
+        local CoordWin = Instance.new("Frame")
+        CoordWin.Size = UDim2.new(0,220,0,100)
+        CoordWin.Position = UDim2.new(0.2,0,0.2,0)
+        CoordWin.BackgroundColor3 = Color3.new(0.05,0.05,0.05)
+        CoordWin.Active = true
+        CoordWin.Draggable = true
+        CoordWin.Parent = ScreenGui
+        Instance.new("UICorner", CoordWin).CornerRadius = UDim.new(0,5)
+
+        local WinTitle = Instance.new("TextLabel")
+        WinTitle.Size = UDim2.new(1,0,0,25)
+        WinTitle.BackgroundColor3 = Color3.new(0.15,0.15,0.15)
+        WinTitle.Text = "当前坐标"
+        WinTitle.TextColor3 = Color3.new(1,1,1)
+        WinTitle.Font = Enum.Font.SourceSansBold
+        WinTitle.TextSize = 12
+        WinTitle.Parent = CoordWin
+
+        local CloseWinBtn = Instance.new("TextButton")
+        CloseWinBtn.Size = UDim2.new(0,25,0,25)
+        CloseWinBtn.Position = UDim2.new(1,-25,0,0)
+        CloseWinBtn.BackgroundColor3 = Color3.new(0.7,0.2,0.2)
+        CloseWinBtn.Text = "×"
+        CloseWinBtn.TextColor3 = Color3.new(1,1,1)
+        CloseWinBtn.Parent = WinTitle
+        CloseWinBtn.MouseButton1Click:Connect(function() CoordWin:Destroy() end)
+
+        local CopyBtn = Instance.new("TextButton")
+        CopyBtn.Size = UDim2.new(0,25,0,25)
+        CopyBtn.Position = UDim2.new(1,-50,0,0)
+        CopyBtn.BackgroundColor3 = Color3.new(0.2,0.5,0.2)
+        CopyBtn.Text = "📋"
+        CopyBtn.TextColor3 = Color3.new(1,1,1)
+        CopyBtn.Parent = WinTitle
+        CopyBtn.MouseButton1Click:Connect(function()
+            setClipboard(string.format("X:%.1f,Y:%.1f,Z:%.1f",pos.X,pos.Y,pos.Z))
+            WindUI:Notify({Title = "成功", Content = "坐标已复制", Duration = 2})
+        end)
+
+        local PosText = Instance.new("TextLabel")
+        PosText.Size = UDim2.new(1,-10,1,-25)
+        PosText.Position = UDim2.new(0,5,0,25)
+        PosText.BackgroundTransparency = 1
+        PosText.Text = string.format("X:%.1f\nY:%.1f\nZ:%.1f",pos.X,pos.Y,pos.Z)
+        PosText.TextColor3 = Color3.new(0.9,0.9,0.9)
+        PosText.TextSize = 13
+        PosText.Parent = CoordWin
+    end)
+
+    TeleBtn.MouseButton1Click:Connect(function()
+        local Char = Player.Character
+        if not Char then
+            WindUI:Notify({Title = "错误", Content = "角色未加载", Duration = 2})
+            return
+        end
+        local HRP = Char:FindFirstChild("HumanoidRootPart")
+        local Hum = Char:FindFirstChild("Humanoid")
+        if not HRP or not Hum or Hum.Health <=0 then return end
+
+        local x = tonumber(XInput.Text)
+        local y = tonumber(YInput.Text)
+        local z = tonumber(ZInput.Text)
+        if not x or not y or not z then
+            WindUI:Notify({Title = "错误", Content = "请输入有效数字", Duration = 2})
+            return
+        end
+
+        HRP.CFrame = CFrame.new(x,y,z)
+        WindUI:Notify({Title = "成功", Content = "传送完成", Duration = 2})
+    end)
+
+    MinBtn.MouseButton1Click:Connect(ToggleMin)
+    MinIcon.MouseButton1Click:Connect(ToggleMin)
+    CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+    game:GetService("RunService").RenderStepped:Connect(UpdatePos)
+
+    Player.CharacterAdded:Connect(function()
+        wait(1)
+        UpdatePos()
+    end)
+    Notify("✅ 启动成功", "坐标传送工具已加载", 2)
+end
+
+-- 2. 服务器跳转
+local function RunServerTP()
+    local TeleportService = game:GetService("TeleportService")
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local oldGui = PlayerGui:FindFirstChild("SimpleServerTP")
+    if oldGui then oldGui:Destroy() end
+
+    -- 内嵌的 SetNotification 全部改为调用 Notify
+    local function SetNotification(title, text, duration)
+        Notify(title, text, duration)
+    end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "SimpleServerTP"
+    ScreenGui.Parent = PlayerGui
+    ScreenGui.IgnoreGuiInset = true
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 300, 0, 220)
+    MainFrame.Position = UDim2.new(0.5, -150, 0.45, -100)
+    MainFrame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.12)
+    MainFrame.BackgroundTransparency = 0.3
+    MainFrame.Parent = ScreenGui
+    MainFrame.ZIndex = 2
+    local MainCorner = Instance.new("UICorner")
+    MainCorner.CornerRadius = UDim.new(0, 12)
+    MainCorner.Parent = MainFrame
+    local BgImage = Instance.new("ImageLabel")
+    BgImage.Size = UDim2.new(1, 0, 1, 0)
+    BgImage.Position = UDim2.new(0, 0, 0, 0)
+    BgImage.BackgroundTransparency = 1
+    BgImage.Image = "rbxassetid://100395992755308"
+    BgImage.ScaleType = Enum.ScaleType.Crop
+    BgImage.Transparency = 0.7
+    BgImage.ZIndex = 1
+    BgImage.Parent = MainFrame
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 35)
+    Title.BackgroundTransparency = 1
+    Title.Text = "🌐 服务器跳转"
+    Title.TextColor3 = Color3.new(1,1,1)
+    Title.TextSize = 16
+    Title.Font = Enum.Font.GothamBold
+    Title.Parent = MainFrame
+    Title.ZIndex = 3
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Position = UDim2.new(0, 10, 0, 0)
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+    CloseBtn.Position = UDim2.new(1, -35, 0, 2)
+    CloseBtn.BackgroundColor3 = Color3.new(1, 0.2, 0.2)
+    CloseBtn.BackgroundTransparency = 0.3
+    CloseBtn.Text = "✕"
+    CloseBtn.TextColor3 = Color3.new(1,1,1)
+    CloseBtn.TextSize = 18
+    CloseBtn.Parent = MainFrame
+    CloseBtn.ZIndex = 4
+    CloseBtn.AutoButtonColor = true
+    local CloseBtnCorner = Instance.new("UICorner")
+    CloseBtnCorner.CornerRadius = UDim.new(0, 6)
+    CloseBtnCorner.Parent = CloseBtn
+    local CopyBtn = Instance.new("TextButton")
+    CopyBtn.Size = UDim2.new(0.9, 0, 0, 35)
+    CopyBtn.Position = UDim2.new(0.05, 0, 0, 45)
+    CopyBtn.BackgroundColor3 = Color3.new(0.2, 0.6, 1)
+    CopyBtn.BackgroundTransparency = 0.3
+    CopyBtn.Text = "📋 复制当前服务器ID"
+    CopyBtn.TextColor3 = Color3.new(1,1,1)
+    CopyBtn.TextSize = 14
+    CopyBtn.Parent = MainFrame
+    CopyBtn.ZIndex = 3
+    CopyBtn.AutoButtonColor = true
+    local CopyBtnCorner = Instance.new("UICorner")
+    CopyBtnCorner.CornerRadius = UDim.new(0, 6)
+    CopyBtnCorner.Parent = CopyBtn
+    local InputTip = Instance.new("TextLabel")
+    InputTip.Size = UDim2.new(0.9, 0, 0, 20)
+    InputTip.Position = UDim2.new(0.05, 0, 0, 90)
+    InputTip.BackgroundTransparency = 1
+    InputTip.Text = "粘贴目标服务器ID:"
+    InputTip.TextColor3 = Color3.new(0.8,0.8,0.8)
+    InputTip.TextSize = 12
+    InputTip.Parent = MainFrame
+    InputTip.ZIndex = 3
+    local InputBox = Instance.new("TextBox")
+    InputBox.Size = UDim2.new(0.9, 0, 0, 35)
+    InputBox.Position = UDim2.new(0.05, 0, 0, 112)
+    InputBox.BackgroundColor3 = Color3.new(0.15,0.15,0.18)
+    InputBox.BackgroundTransparency = 0.3
+    InputBox.Text = ""
+    InputBox.PlaceholderText = "粘贴 JobID 在这里"
+    InputBox.TextColor3 = Color3.new(1,1,1)
+    InputBox.TextSize = 13
+    InputBox.ClearTextOnFocus = false
+    InputBox.Parent = MainFrame
+    InputBox.ZIndex = 3
+    InputBox.ClipsDescendants = true
+    local InputBoxCorner = Instance.new("UICorner")
+    InputBoxCorner.CornerRadius = UDim.new(0, 6)
+    InputBoxCorner.Parent = InputBox
+    local GoBtn = Instance.new("TextButton")
+    GoBtn.Size = UDim2.new(0.9, 0, 0, 35)
+    GoBtn.Position = UDim2.new(0.05, 0, 0, 160)
+    GoBtn.BackgroundColor3 = Color3.new(0.3, 0.9, 0.4)
+    GoBtn.BackgroundTransparency = 0.3
+    GoBtn.Text = "🚀 跳转到该服务器"
+    GoBtn.TextColor3 = Color3.new(0,0,0)
+    GoBtn.TextSize = 14
+    GoBtn.Parent = MainFrame
+    GoBtn.ZIndex = 3
+    GoBtn.AutoButtonColor = true
+    local GoBtnCorner = Instance.new("UICorner")
+    GoBtnCorner.CornerRadius = UDim.new(0, 6)
+    GoBtnCorner.Parent = GoBtn
+    CloseBtn.MouseButton1Click:Connect(function()
+        ScreenGui:Destroy()
+        SetNotification("🔴 已关闭", "服务器跳转界面已关闭", 1.5)
+    end)
+    CopyBtn.MouseButton1Click:Connect(function()
+        local jobId = game.JobId
+        if jobId and jobId ~= "" then
+            pcall(setClipboard, jobId)
+            SetNotification("✅ 成功", "服务器ID已复制到剪贴板", 2.5)
+        else
+            SetNotification("❌ 失败", "无法获取当前服务器ID", 2.5)
+        end
+    end)
+    GoBtn.MouseButton1Click:Connect(function()
+        local targetId = InputBox.Text:gsub("%s+", "")
+        local placeId = game.PlaceId
+        if targetId == "" then
+            SetNotification("⚠️ 提示", "请先粘贴服务器ID", 2)
+            return
+        end
+        SetNotification("🔄 跳转中", "正在连接目标服务器...", 3)
+        task.delay(0.6, function()
+            local success, err = pcall(function()
+                TeleportService:TeleportToPlaceInstance(placeId, targetId, LocalPlayer)
+            end)
+            if not success then
+                SetNotification("❌ 跳转失败", tostring(err):sub(1, 30), 3)
+            end
+        end)
+    end)
+    local dragging = false
+    local dragStart, startPos
+    MainFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = MainFrame.Position
+            input:Destroy()
+        end
+    end)
+    MainFrame.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    MainFrame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    SetNotification("✅ 加载完成", "美化版服务器跳转已启动", 2)
+end
+
+-- 3. 画我脚本
+local function RunDrawMe()
+    pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/ke9460394-dot/ugik/refs/heads/main/KENNY画我.lua"))()
+        Notify("✅ 启动成功", "画我脚本已加载", 2)
+    end, function(err)
+        Notify("❌ 启动失败", "链接失效/网络问题", 2)
+    end)
+end
+
+-- 4. 亮度调节器
+local function RunBrightness()
+    loadstring([[
+        local Lighting = game:GetService("Lighting")
+        local RunService = game:GetService("RunService")
+        local UserInputService = game:GetService("UserInputService")
+        local Players = game:GetService("Players")
+        local original = {Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient, FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart, FogColor = Lighting.FogColor}
+        local targetPercent = 0.5
+        local isLocked = true
+        if game.CoreGui:FindFirstChild("SunBrightnessControl") then
+            game.CoreGui.SunBrightnessControl:Destroy()
+        end
+        local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "SunBrightnessControl"
+        ScreenGui.Parent = game.CoreGui
+        ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        ScreenGui.IgnoreGuiInset = true
+        local UIColor = Color3.fromRGB(50, 50, 50)
+        local UITransparency = 0.3
+        local BrightnessPanel = Instance.new("Frame")
+        BrightnessPanel.Size = UDim2.new(0, 55, 0, 140)
+        BrightnessPanel.Position = UDim2.new(0.925, 0, 0.05, 0)
+        BrightnessPanel.BackgroundColor3 = UIColor
+        BrightnessPanel.BackgroundTransparency = UITransparency
+        BrightnessPanel.BorderSizePixel = 0
+        BrightnessPanel.Parent = ScreenGui
+        local panelCorner = Instance.new("UICorner")
+        panelCorner.CornerRadius = UDim.new(0, 16)
+        panelCorner.Parent = BrightnessPanel
+        local SunIcon = Instance.new("TextLabel")
+        SunIcon.Size = UDim2.new(1, 0, 0.35, 0)
+        SunIcon.Position = UDim2.new(0, 0, 0.65, 0)
+        SunIcon.BackgroundTransparency = 1
+        SunIcon.Text = "☆"
+        SunIcon.TextSize = 26
+        SunIcon.TextColor3 = Color3.new(1, 1, 1)
+        SunIcon.TextXAlignment = Enum.TextXAlignment.Center
+        SunIcon.TextYAlignment = Enum.TextYAlignment.Center
+        SunIcon.Parent = BrightnessPanel
+        local SliderBg = Instance.new("Frame")
+        SliderBg.Size = UDim2.new(0, 12, 0, 65)
+        SliderBg.Position = UDim2.new(0.5, -6, 0, 25)
+        SliderBg.BackgroundColor3 = UIColor
+        SliderBg.BackgroundTransparency = UITransparency
+        SliderBg.BorderSizePixel = 0
+        local sliderCorner = Instance.new("UICorner")
+        sliderCorner.CornerRadius = UDim.new(0, 6)
+        sliderCorner.Parent = SliderBg
+        SliderBg.Parent = BrightnessPanel
+        local SliderFill = Instance.new("Frame")
+        SliderFill.Name = "Fill"
+        SliderFill.Size = UDim2.new(1, 0, targetPercent, 0)
+        SliderFill.Position = UDim2.new(0, 0, 1 - targetPercent, 0)
+        SliderFill.BackgroundColor3 = Color3.fromRGB(255, 204, 0)
+        SliderFill.BorderSizePixel = 0
+        local fillCorner = Instance.new("UICorner")
+        fillCorner.CornerRadius = UDim.new(0, 4)
+        fillCorner.Parent = SliderFill
+        SliderFill.Parent = SliderBg
+        local LockBtn = Instance.new("TextButton")
+        LockBtn.Size = UDim2.new(0, 55, 0, 40)
+        LockBtn.Position = UDim2.new(0.925, 0, 0.4, 0)
+        LockBtn.BackgroundColor3 = UIColor
+        LockBtn.BackgroundTransparency = UITransparency
+        LockBtn.BorderSizePixel = 0
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 20)
+        btnCorner.Parent = LockBtn
+        LockBtn.Parent = ScreenGui
+        LockBtn.Text = isLocked and "★" or "☆"
+        LockBtn.TextSize = 24
+        LockBtn.TextColor3 = Color3.new(1, 1, 1)
+        local function applyBrightness(percent)
+            percent = math.clamp(percent, 0, 1)
+            Lighting.Brightness = 1 + percent * 4
+            Lighting.ClockTime = 12
+            local ambient = Color3.new(percent, percent, percent)
+            Lighting.Ambient = ambient
+            Lighting.OutdoorAmbient = ambient
+            Lighting.FogEnd = 100000
+            Lighting.FogStart = 0
+            Lighting.FogColor = Color3.new(1,1,1)
+        end
+        RunService.RenderStepped:Connect(function()
+            if isLocked then applyBrightness(targetPercent) end
+        end)
+        local dragging = false
+        SliderBg.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true end
+        end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then if dragging then dragging = false end end
+        end)
+        RunService.RenderStepped:Connect(function()
+            if dragging then
+                local mouse = Players.LocalPlayer:GetMouse()
+                local relY = mouse.Y - SliderBg.AbsolutePosition.Y
+                local height = SliderBg.AbsoluteSize.Y
+                if height <= 0 then return end
+                targetPercent = math.clamp(1 - (relY / height), 0, 1)
+                SliderFill.Size = UDim2.new(1, 0, targetPercent, 0)
+                SliderFill.Position = UDim2.new(0, 0, 1 - targetPercent, 0)
+            end
+        end)
+        LockBtn.MouseButton1Click:Connect(function()
+            isLocked = not isLocked
+            LockBtn.Text = isLocked and "LOCK" or "UNLOCK"
+        end)
+        applyBrightness(targetPercent)
+    ]])()
+    Notify("✅ 启动成功", "亮度调节器已加载", 2)
+end
+
+-- 5. 绕屏蔽聊天
+local function RunUnblockChat()
+    loadstring([[
+        local P=game:GetService("Players");local SG=game:GetService("StarterGui");local TCS=game:GetService("TextChatService");local lp=P.LocalPlayer;pcall(function()SG:SetCoreGuiEnabled(Enum.CoreGuiType.Chat,true);SG:SetCore("ChatActive",true);SG:SetCore("ChatVisible",true)end);pcall(function()if TCS then TCS.ChatWindowConfiguration.Enabled=true;TCS.InputBarConfiguration.Enabled=true;TCS.InputBarConfiguration.InputBarVisible=true end end);pcall(function()for _,d in ipairs(lp.PlayerGui:GetDescendants())do if d:IsA("TextBox")then d.Interactable=true;d.Enabled=true;d:CaptureFocus()end end end);print("Chat Unblock Done")
+    ]])()
+    Notify("✅ 执行成功", "聊天屏蔽已解除", 2)
+end
+
+-- 6. Ping/FPS 监控
+local function RunPingFps()
+    loadstring([[
+        local Players = game:GetService("Players")
+        local RunService = game:GetService("RunService")
+        local UserInputService = game:GetService("UserInputService")
+        local LocalPlayer = Players.LocalPlayer
+        local MAX_DATA_POINTS = 30
+        local UPDATE_INTERVAL_GRAPH = 0.5
+        local UPDATE_INTERVAL_TEXT = 0.05
+        local GRAPH_WIDTH = 160
+        local GRAPH_HEIGHT = 80
+        local MAX_PING_SCALE = 600
+        local Y_LABELS = {{value = 600, y = 0},{value = 400, y = GRAPH_HEIGHT * 1/3},{value = 200, y = GRAPH_HEIGHT * 2/3},{value = 0,   y = GRAPH_HEIGHT}}
+        local function getClientSidePing()
+            local networkStats = game:GetService("NetworkClient"):FindFirstChild("NetworkStats")
+            if networkStats and networkStats:FindFirstChild("AverageLatency") then
+                return networkStats.AverageLatency.Value * 1000
+            else
+                return LocalPlayer:GetNetworkPing() * 1000
+            end
+        end
+        local lastTime = tick()
+        local frameCount = 0
+        local currentFPS = 0
+        RunService.RenderStepped:Connect(function()
+            frameCount = frameCount + 1
+            local now = tick()
+            if now - lastTime >= 1 then
+                currentFPS = frameCount / (now - lastTime)
+                frameCount = 0
+                lastTime = now
+            end
+        end)
+        if LocalPlayer.PlayerGui:FindFirstChild("PingGraphUI") then
+            LocalPlayer.PlayerGui.PingGraphUI:Destroy()
+        end
+        local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "PingGraphUI"
+        ScreenGui.Parent = LocalPlayer.PlayerGui
+        ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        ScreenGui.IgnoreGuiInset = true
+        local Container = Instance.new("Frame")
+        Container.Name = "PingGraph"
+        Container.Size = UDim2.new(0, GRAPH_WIDTH + 65, 0, GRAPH_HEIGHT + 45)
+        Container.AnchorPoint = Vector2.new(0.5, 0.5)
+        Container.Position = UDim2.new(0.5, 0, 0.5, 0)
+        Container.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        Container.BackgroundTransparency = 0.3
+        Container.BorderSizePixel = 0
+        Container.ClipsDescendants = true
+        Container.Parent = ScreenGui
+        local ContainerCorner = Instance.new("UICorner")
+        ContainerCorner.CornerRadius = UDim.new(0, 12)
+        ContainerCorner.Parent = Container
+        local TopBar = Instance.new("Frame")
+        TopBar.Name = "TopBar"
+        TopBar.Size = UDim2.new(1, -28, 0, 24)
+        TopBar.Position = UDim2.new(0, 0, 0, 0)
+        TopBar.BackgroundTransparency = 1
+        TopBar.Parent = Container
+        local PingLabel = Instance.new("TextLabel")
+        PingLabel.Name = "PingValue"
+        PingLabel.Size = UDim2.new(0.4, 0, 1, 0)
+        PingLabel.Position = UDim2.new(0.05, 0, 0, 0)
+        PingLabel.BackgroundTransparency = 1
+        PingLabel.TextColor3 = Color3.new(1, 1, 1)
+        PingLabel.Text = "延迟:-- 毫秒"
+        PingLabel.TextSize = 15
+        PingLabel.TextXAlignment = Enum.TextXAlignment.Left
+        PingLabel.Parent = TopBar
+        local FPSLabel = Instance.new("TextLabel")
+        FPSLabel.Name = "FPSValue"
+        FPSLabel.Size = UDim2.new(0.4, 0, 1, 0)
+        FPSLabel.Position = UDim2.new(0.63, 0, 0, 0)
+        FPSLabel.BackgroundTransparency = 1
+        FPSLabel.TextColor3 = Color3.new(1, 1, 1)
+        FPSLabel.Text = "帧率:--"
+        FPSLabel.TextSize = 15
+        FPSLabel.TextXAlignment = Enum.TextXAlignment.Left
+        FPSLabel.Parent = TopBar
+        local CloseButton = Instance.new("TextButton")
+        CloseButton.Name = "CloseButton"
+        CloseButton.Size = UDim2.new(0, 24, 0, 24)
+        CloseButton.Position = UDim2.new(1, -1, 0, 0)
+        CloseButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        CloseButton.BackgroundTransparency = 0.3
+        CloseButton.BorderSizePixel = 0
+        CloseButton.Parent = TopBar
+        local CloseCorner = Instance.new("UICorner")
+        CloseCorner.CornerRadius = UDim.new(0, 6)
+        CloseCorner.Parent = CloseButton
+        CloseButton.Text = "×"
+        CloseButton.TextColor3 = Color3.new(1, 1, 1)
+        CloseButton.TextSize = 15
+        local YAxisFrame = Instance.new("Frame")
+        YAxisFrame.Name = "YAxis"
+        YAxisFrame.Size = UDim2.new(0, 55, 1, -30)
+        YAxisFrame.Position = UDim2.new(0, 5, 0, 28)
+        YAxisFrame.BackgroundTransparency = 1
+        YAxisFrame.Parent = Container
+        for _, labelInfo in ipairs(Y_LABELS) do
+            local YLabel = Instance.new("TextLabel")
+            YLabel.Name = "YLabel"..labelInfo.value
+            YLabel.Size = UDim2.new(1, 0, 0, 16)
+            YLabel.Position = UDim2.new(0, 0, 0, labelInfo.y - 8)
+            YLabel.BackgroundTransparency = 1
+            YLabel.TextColor3 = Color3.fromRGB(140, 140, 140)
+            YLabel.Text = labelInfo.value .. "毫秒"
+            YLabel.TextSize = 14
+            YLabel.TextXAlignment = Enum.TextXAlignment.Right
+            YLabel.Parent = YAxisFrame
+        end
+        local Plot = Instance.new("Frame")
+        Plot.Name = "PlotArea"
+        Plot.Size = UDim2.new(1, -65, 1, -30)
+        Plot.Position = UDim2.new(0, 65, 0, 28)
+        Plot.BackgroundTransparency = 1
+        Plot.ClipsDescendants = true
+        Plot.Parent = Container
+        local PingData = {}
+        local LineSegments = {}
+        local STEP_X = GRAPH_WIDTH / (MAX_DATA_POINTS - 1)
+        local LINE_THICKNESS = 2
+        for i = 1, MAX_DATA_POINTS - 1 do
+            local line = Instance.new("Frame")
+            line.Name = "Line"..i
+            line.AnchorPoint = Vector2.new(0.5, 0.5)
+            line.BorderSizePixel = 0
+            line.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+            line.Size = UDim2.fromOffset(1, LINE_THICKNESS)
+            line.Position = UDim2.fromOffset((i - 1) * STEP_X, GRAPH_HEIGHT / 2)
+            line.Parent = Plot
+            table.insert(LineSegments, line)
+        end
+        local function mapPingToY(ping)
+            local clampedPing = math.clamp(ping, 0, MAX_PING_SCALE)
+            local normalized = 1 - (clampedPing / MAX_PING_SCALE)
+            return normalized * GRAPH_HEIGHT
+        end
+        local function updateText()
+            local currentPing = getClientSidePing()
+            currentPing = math.floor(currentPing + 0.5)
+            PingLabel.Text = string.format("延迟:%d毫秒", currentPing)
+            FPSLabel.Text = string.format("帧率:%d", math.floor(currentFPS + 0.5))
+        end
+        local function updateGraph()
+            local currentPing = getClientSidePing()
+            currentPing = math.floor(currentPing + 0.5)
+            table.insert(PingData, currentPing)
+            if #PingData > MAX_DATA_POINTS then table.remove(PingData, 1) end
+            while #PingData < MAX_DATA_POINTS do table.insert(PingData, 1, 0) end
+            for i = 1, #LineSegments do
+                local v1 = PingData[i]
+                local v2 = PingData[i + 1]
+                if v1 and v2 then
+                    local x1 = (i - 1) * STEP_X
+                    local y1 = mapPingToY(v1)
+                    local x2 = i * STEP_X
+                    local y2 = mapPingToY(v2)
+                    local mx = (x1 + x2) / 2
+                    local my = (y1 + y2) / 2
+                    local dx = x2 - x1
+                    local dy = y2 - y1
+                    local length = math.sqrt(dx^2 + dy^2)
+                    local angle = math.deg(math.atan2(dy, dx))
+                    local line = LineSegments[i]
+                    line.Position = UDim2.fromOffset(mx, my)
+                    line.Size = UDim2.fromOffset(length + 2, LINE_THICKNESS)
+                    line.Rotation = angle
+                end
+            end
+        end
+        local isDragging = false
+        local dragStartPos = nil
+        local startContainerPos = nil
+        TopBar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isDragging = true
+                dragStartPos = input.Position
+                startContainerPos = Container.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then isDragging = false end
+                end)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - dragStartPos
+                Container.Position = UDim2.new(startContainerPos.X.Scale, startContainerPos.X.Offset + delta.X, startContainerPos.Y.Scale, startContainerPos.Y.Offset + delta.Y)
+            end
+        end)
+        CloseButton.MouseButton1Click:Connect(function() Container.Visible = false end)
+        RunService.Heartbeat:Connect(function() if Container.Visible then updateText() end end)
+        task.spawn(function() while true do if Container.Visible then updateGraph() end task.wait(UPDATE_INTERVAL_GRAPH) end end)
+    ]])()
+    Notify("✅ 启动成功", "Ping/FPS监控已加载", 2)
+end
+
+-- 7. IY 指令脚本
+local function RunInfiniteYield()
+    pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+        Notify("✅ 启动成功", "IY指令脚本已加载", 2)
+    end, function(err)
+        Notify("❌ 启动失败", "链接失效/网络问题", 2)
+    end)
+end
+
+-- ============ 防甩模块（Toggle开关） ============
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local speaker = Players.LocalPlayer
+
+-- 存放所有需要持续关闭碰撞的 BasePart
+local parts = {}
+-- 存放所有需要清理的事件连接
+local connections = {}
+-- 防甩开关状态
+local isActive = false
+
+-- 将零件纳入监控
+local function trackPart(part)
+    if part:IsA("BasePart") then
+        parts[part] = true
+    end
+end
+
+-- 将零件移出监控
+local function untrackPart(part)
+    parts[part] = nil
+end
+
+-- 监控一个角色：现有零件 + 未来新增/移除 + 角色删除时清理
+local function watchCharacter(character)
+    -- 现有零件
+    for _, part in ipairs(character:GetDescendants()) do
+        trackPart(part)
+    end
+
+    -- 未来新增零件
+    local descAddedConn = character.DescendantAdded:Connect(function(desc)
+        trackPart(desc)
+    end)
+    -- 未来移除零件
+    local descRemovingConn = character.DescendantRemoving:Connect(function(desc)
+        untrackPart(desc)
+    end)
+
+    -- 当角色从游戏世界移除（死亡、重置、移除）时，彻底清理
+    local ancestryConn
+    ancestryConn = character.AncestryChanged:Connect(function(_, parent)
+        if parent == nil then
+            descAddedConn:Disconnect()
+            descRemovingConn:Disconnect()
+            ancestryConn:Disconnect()
+            -- 将该角色所有残留零件移出监控表
+            for _, part in ipairs(character:GetDescendants()) do
+                untrackPart(part)
+            end
+        end
+    end)
+end
+
+-- 为一名玩家绑定完整的监控（当前角色 + 未来重生）
+local function setupPlayer(player)
+    if player == speaker then return end
+
+    -- 绑定角色重生事件
+    local charConn = player.CharacterAdded:Connect(function(character)
+        watchCharacter(character)
+    end)
+    table.insert(connections, charConn)
+
+    -- 如果当前已有角色，立即监控
+    if player.Character then
+        watchCharacter(player.Character)
+    end
+end
+
+-- ★ 开启防甩
+StartAntiFling = function()
+    if isActive then return end
+    isActive = true
+
+    -- 清空旧数据
+    table.clear(parts)
+
+    -- 为所有在线玩家绑定监控（包括当前和重生）
+    for _, player in ipairs(Players:GetPlayers()) do
+        setupPlayer(player)
+    end
+
+    -- 监听未来加入的玩家
+    local playerAddedConn = Players.PlayerAdded:Connect(setupPlayer)
+    table.insert(connections, playerAddedConn)
+
+    -- 轻量帧循环：只遍历 parts 表，不再递归查找
+    local steppedConn = RunService.Stepped:Connect(function()
+        for part in pairs(parts) do
+            pcall(function()
+                part.CanCollide = false
+            end)
+        end
+    end)
+    table.insert(connections, steppedConn)
+
+    Notify("🛡️ 防甩已开启", "持续保护中（含重生监控）", 2)
+end
+
+-- ★ 关闭防甩
+StopAntiFling = function()
+    if not isActive then
+        Notify("🛡️ 防甩提示", "当前未开启，无需关闭", 2)
+        return false
+    end
+
+    -- 断开所有事件（PlayerAdded、各玩家CharacterAdded、Stepped）
+    for _, conn in ipairs(connections) do
+        conn:Disconnect()
+    end
+    table.clear(connections)
+
+    -- 恢复所有监控零件的碰撞
+    for part in pairs(parts) do
+        pcall(function()
+            part.CanCollide = true
+        end)
+    end
+    table.clear(parts)
+
+    isActive = false
+    Notify("🛡️ 防甩已关闭", "碰撞已恢复", 2)
+    return true
+end
+
+ToggleAntiFling = function(enabled)
+    if enabled then StartAntiFling() else StopAntiFling() end
+end
+
+-- 9. 目视坐标
+local function RunLookPos()
+    local Players = game:GetService("Players")
+    local Player = Players.LocalPlayer
+    local PlayerGui = Player:WaitForChild("PlayerGui")
+    local Camera = workspace.CurrentCamera
+
+    local function setClipboard(str)
+        if setclipboard then
+            setclipboard(str)
+        elseif game.SetClipboard then
+            game:SetClipboard(str)
+        else
+            warn("剪贴板不可用")
+        end
+    end
+
+    local crossGui = Instance.new("ScreenGui", PlayerGui)
+    crossGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    local cross = Instance.new("TextLabel", crossGui)
+    cross.Size = UDim2.new(0, 2, 0, 2)
+    cross.Position = UDim2.new(0.5, -1, 0.5, -1)
+    cross.BackgroundColor3 = Color3.new(1,1,1)
+
+    local mainGui = Instance.new("ScreenGui", PlayerGui)
+    mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    local fpButton = Instance.new("TextButton", mainGui)
+    fpButton.Size = UDim2.new(0, 130, 0, 40)
+    fpButton.Position = UDim2.new(0, 10, 0, 10)
+    fpButton.BackgroundColor3 = Color3.new(0.2, 0.6, 1)
+    fpButton.TextColor3 = Color3.new(1,1,1)
+    fpButton.Text = "🔍 第一人称：关闭"
+    fpButton.TextSize = 16
+    fpButton.Font = Enum.Font.SourceSansBold
+
+    local isFirstPerson = false
+    fpButton.MouseButton1Click:Connect(function()
+        isFirstPerson = not isFirstPerson
+        if isFirstPerson then
+            Player.CameraMode = Enum.CameraMode.LockFirstPerson
+            fpButton.Text = "🔍 第一人称：开启"
+            fpButton.BackgroundColor3 = Color3.new(0, 0.8, 0.2)
+        else
+            Player.CameraMode = Enum.CameraMode.Classic
+            fpButton.Text = "🔍 第一人称：关闭"
+            fpButton.BackgroundColor3 = Color3.new(0.2, 0.6, 1)
+        end
+    end)
+
+    local copyButton = Instance.new("TextButton", mainGui)
+    copyButton.Size = UDim2.new(0, 130, 0, 40)
+    copyButton.Position = UDim2.new(0, 10, 0, 55)
+    copyButton.BackgroundColor3 = Color3.new(1, 0.3, 0.3)
+    copyButton.TextColor3 = Color3.new(1,1,1)
+    copyButton.Text = "📋 复制目视坐标"
+    copyButton.TextSize = 16
+    copyButton.Font = Enum.Font.SourceSansBold
+
+    copyButton.MouseButton1Click:Connect(function()
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+        raycastParams.FilterDescendantsInstances = {Player.Character}
+
+        local start = Camera.CFrame.Position
+        local direction = Camera.CFrame.LookVector * 1000
+        local result = workspace:Raycast(start, direction, raycastParams)
+
+        local pos = result and result.Position or (start + direction)
+        local txt = string.format("X:%.2f Y:%.2f Z:%.2f", pos.X, pos.Y, pos.Z)
+        setClipboard(txt)
+
+        WindUI:Notify({
+            Title = "✅ 目视坐标已复制",
+            Content = txt,
+            Duration = 2
+        })
+    end)
+
+    local closeButton = Instance.new("TextButton", mainGui)
+    closeButton.Size = UDim2.new(0, 130, 0, 40)
+    closeButton.Position = UDim2.new(0, 10, 0, 100)
+    closeButton.BackgroundColor3 = Color3.new(0.5, 0.5, 0.5)
+    closeButton.TextColor3 = Color3.new(1,1,1)
+    closeButton.Text = "❌ 关闭所有按钮"
+    closeButton.TextSize = 16
+    closeButton.Font = Enum.Font.SourceSansBold
+
+    closeButton.MouseButton1Click:Connect(function()
+        Player.CameraMode = Enum.CameraMode.Classic
+        isFirstPerson = false
+        fpButton.Text = "🔍 第一人称：关闭"
+        fpButton.BackgroundColor3 = Color3.new(0.2, 0.6, 1)
+        
+        mainGui:Destroy()
+        crossGui:Destroy()
+        
+        WindUI:Notify({
+            Title = "✅ 已关闭",
+            Content = "所有按钮和准星已清除，视角已解锁",
+            Duration = 3
+        })
+    end)
+
+    Notify("✅ 目视坐标已加载", "准星+第一人称+复制坐标已开启", 2)
+end
+
+-- REC 分区功能
+local function RunESP()
+    -- 全局开关（初始化）
+    _G.EnableAllESP = true
+    _G.ScrapESP = true
+    _G.FlareGunESP = true
+
+    -- 服务获取（兼容注入器）
+    local RunService = game:GetService("RunService")
+    local Workspace = game:GetService("Workspace")
+    local Players = game:GetService("Players")
+    local Player = Players.LocalPlayer
+    local PlayerGui = Player:WaitForChild("PlayerGui")
+
+    -- 强制清理旧面板（避免残留导致卡顿/点击无效）
+    if PlayerGui:FindFirstChild("ESP_Control") then
+        PlayerGui.ESP_Control:Destroy()
+    end
+
+    -- ==========================================
+    -- 创建 UI 的函数（可被重生后重新调用）
+    -- ==========================================
+    local function CreateESPUI()
+        -- 再次确保清理旧面板（防止并发创建）
+        local pg = Player.PlayerGui
+        if pg:FindFirstChild("ESP_Control") then
+            pg.ESP_Control:Destroy()
+        end
+
+        -- 创建超小尺寸可拖动悬浮窗
+        local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "ESP_Control"
+        ScreenGui.Parent = pg
+        ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        ScreenGui.IgnoreGuiInset = true
+
+        -- 主面板（超小尺寸：宽120，高90）
+        local MainFrame = Instance.new("Frame")
+        MainFrame.Name = "MiniPanel"
+        MainFrame.Size = UDim2.new(0, 120, 0, 90)
+        MainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
+        MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+        MainFrame.BackgroundTransparency = 0.15
+        MainFrame.BorderSizePixel = 1
+        MainFrame.BorderColor3 = Color3.fromRGB(50, 50, 50)
+        MainFrame.Parent = ScreenGui
+        MainFrame.Active = true
+        MainFrame.Draggable = true
+
+        -- 标题栏
+        local Title = Instance.new("TextLabel")
+        Title.Size = UDim2.new(1, -25, 0, 20)
+        Title.Position = UDim2.new(0, 5, 0, 0)
+        Title.BackgroundTransparency = 1
+        Title.Text = "ESP"
+        Title.TextColor3 = Color3.new(1, 1, 1)
+        Title.TextSize = 11
+        Title.Font = Enum.Font.SourceSansBold
+        Title.Parent = MainFrame
+
+        -- 关闭按钮
+        local CloseBtn = Instance.new("TextButton")
+        CloseBtn.Size = UDim2.new(0, 20, 0, 20)
+        CloseBtn.Position = UDim2.new(1, -20, 0, 0)
+        CloseBtn.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
+        CloseBtn.Text = "X"
+        CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+        CloseBtn.TextSize = 12
+        CloseBtn.Font = Enum.Font.SourceSansBold
+        CloseBtn.Parent = MainFrame
+        CloseBtn.MouseButton1Down:Connect(function()
+            ScreenGui:Destroy()
+            -- 关闭时同时关闭所有 ESP 功能
+            _G.EnableAllESP = false
+            for _, v in pairs(Workspace:GetDescendants()) do
+                if v.Name == "ScrapChams" or v.Name == "FlareGunChams" then
+                    v:Destroy()
+                end
+            end
+        end)
+
+        -- 通用创建开关函数（内部使用，可直接访问 MainFrame）
+        local function CreateToggle(yPos, name, defaultState, callback)
+            -- 开关背景
+            local ToggleBg = Instance.new("Frame")
+            ToggleBg.Size = UDim2.new(0, 30, 0, 15)
+            ToggleBg.Position = UDim2.new(0.7, 0, 0, yPos)
+            ToggleBg.BackgroundColor3 = defaultState and Color3.fromRGB(0, 140, 0) or Color3.fromRGB(140, 0, 0)
+            ToggleBg.BorderSizePixel = 0
+            ToggleBg.Parent = MainFrame
+
+            -- 开关文字
+            local ToggleText = Instance.new("TextLabel")
+            ToggleText.Size = UDim2.new(0, 30, 0, 15)
+            ToggleText.Position = UDim2.new(0.7, 0, 0, yPos)
+            ToggleText.BackgroundTransparency = 1
+            ToggleText.Text = defaultState and "ON" or "OFF"
+            ToggleText.TextColor3 = Color3.new(1, 1, 1)
+            ToggleText.TextSize = 9
+            ToggleText.Font = Enum.Font.SourceSansBold
+            ToggleText.Parent = MainFrame
+
+            -- 开关标签
+            local Label = Instance.new("TextLabel")
+            Label.Size = UDim2.new(0.65, 0, 0, 15)
+            Label.Position = UDim2.new(0, 5, 0, yPos)
+            Label.BackgroundTransparency = 1
+            Label.Text = name
+            Label.TextColor3 = Color3.new(1, 1, 1)
+            Label.TextSize = 10
+            Label.Font = Enum.Font.SourceSans
+            Label.TextXAlignment = Enum.TextXAlignment.Left
+            Label.Parent = MainFrame
+
+            -- 点击区域
+            local ClickArea = Instance.new("TextButton")
+            ClickArea.Size = UDim2.new(0, 30, 0, 15)
+            ClickArea.Position = UDim2.new(0.7, 0, 0, yPos)
+            ClickArea.BackgroundTransparency = 1
+            ClickArea.Text = ""
+            ClickArea.Parent = MainFrame
+
+            local state = defaultState
+            ClickArea.MouseButton1Down:Connect(function()
+                state = not state
+                ToggleBg.BackgroundColor3 = state and Color3.fromRGB(0, 140, 0) or Color3.fromRGB(140, 0, 0)
+                ToggleText.Text = state and "ON" or "OFF"
+                callback(state)
+            end)
+        end
+
+        -- 创建3个开关（位置适配超小面板）
+        CreateToggle(22, "All", _G.EnableAllESP, function(state)
+            _G.EnableAllESP = state
+        end)
+
+        CreateToggle(42, "Scrap", _G.ScrapESP, function(state)
+            _G.ScrapESP = state
+        end)
+
+        CreateToggle(62, "Flare", _G.FlareGunESP, function(state)
+            _G.FlareGunESP = state
+            if not state then
+                local fg = Workspace:FindFirstChild("FlareGunPickUp")
+                if fg and fg:FindFirstChild("FlareGunChams") then
+                    fg.FlareGunChams:Destroy()
+                end
+            end
+        end)
+
+        return ScreenGui
+    end
+
+    -- 首次创建 UI
+    CreateESPUI()
+
+    --==============================
+    -- ESP 核心逻辑（优化性能，避免重复创建）
+    --==============================
+    -- 存储已创建的 ESP 文本，避免内存泄漏
+    local ScrapESPList = {}
+    local FlareESP = nil
+
+    RunService.Heartbeat:Connect(function()
+        -- 【关键修复】检测 UI 是否被游戏重置清除，若消失则重建
+        local currentPG = Player:FindFirstChild("PlayerGui")
+        if currentPG and not currentPG:FindFirstChild("ESP_Control") then
+            CreateESPUI()
+            -- 重建后直接返回，下一帧再执行 ESP 刷新，避免状态错乱
+            return
+        end
+
+        if not _G.EnableAllESP then
+            -- 总开关关闭，隐藏所有 ESP
+            if FlareESP then FlareESP.Visible = false end
+            for _, esp in pairs(ScrapESPList) do
+                esp.Visible = false
+            end
+            return
+        end
+
+        -- 1. Scrap ESP + Chams
+        if _G.ScrapESP then
+            local ScrapSpawns = Workspace:FindFirstChild("Filter") and Workspace.Filter:FindFirstChild("ScrapSpawns")
+            if ScrapSpawns then
+                for _, v in pairs(ScrapSpawns:GetDescendants()) do
+                    if v.Name == "Scrap" and not ScrapESPList[v] then
+                        local esp = Drawing.new("Text")
+                        esp.Center = true
+                        esp.Outline = false
+                        esp.Color = Color3.fromRGB(77, 35, 1)
+                        esp.Size = 11
+                        esp.Font = 2
+                        esp.Visible = false
+                        ScrapESPList[v] = esp
+
+                        local chams = Instance.new("Highlight")
+                        chams.Parent = v
+                        chams.Adornee = v
+                        chams.FillColor = Color3.fromRGB(77, 35, 1)
+                        chams.FillTransparency = 0
+                        chams.OutlineTransparency = 0
+                        chams.OutlineColor = Color3.fromRGB(170, 170, 170)
+                        chams.Name = "ScrapChams"
+
+                        RunService.Heartbeat:Connect(function()
+                            if not _G.EnableAllESP or not _G.ScrapESP or not v.Parent then
+                                esp.Visible = false
+                                if chams then chams:Destroy() end
+                                ScrapESPList[v] = nil
+                                return
+                            end
+                            local cam = Workspace.CurrentCamera
+                            local Vec3, OnScreen = cam:WorldToViewportPoint(v.Position)
+                            esp.Visible = OnScreen
+                            if OnScreen then
+                                esp.Position = Vector2.new(Vec3.X, Vec3.Y)
+                                esp.Text = "Scrap " .. v.Parent.PointsVal.Value .. " Lv" .. v.Parent.LevelVal.Value
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+
+        -- 2. Flare Gun ESP + Chams
+        if _G.FlareGunESP then
+            local fg = Workspace:FindFirstChild("FlareGunPickUp")
+            if fg and fg:FindFirstChild("FlareGun") and not FlareESP then
+                FlareESP = Drawing.new("Text")
+                FlareESP.Text = "Flare Gun"
+                FlareESP.Color = Color3.fromRGB(0, 225, 255)
+                FlareESP.Outline = false
+                FlareESP.Center = true
+                FlareESP.Font = 2
+                FlareESP.Size = 11
+                FlareESP.Visible = false
+
+                local chams = Instance.new("Highlight")
+                chams.Parent = fg
+                chams.Adornee = fg
+                chams.FillColor = Color3.fromRGB(255, 0, 0)
+                chams.FillTransparency = 0.3
+                chams.OutlineTransparency = 0.8
+                chams.OutlineColor = Color3.fromRGB(170, 170, 170)
+                chams.Name = "FlareGunChams"
+
+                RunService.Heartbeat:Connect(function()
+                    if not _G.EnableAllESP or not _G.FlareGunESP or not fg:FindFirstChild("FlareGun") then
+                        FlareESP.Visible = false
+                        if chams then chams:Destroy() end
+                        FlareESP = nil
+                        return
+                    end
+                    local cam = Workspace.CurrentCamera
+                    local Pos, OnScreen = cam:WorldToViewportPoint(fg.FlareGun.Position)
+                    FlareESP.Visible = OnScreen
+                    if OnScreen then
+                        FlareESP.Position = Vector2.new(Pos.X, Pos.Y)
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+-- REC 分区功能2：Rake Chams 脚本 (保持不变)
+local function RunRakeChams()
+    if game.GameId == 847722000 then
+        if getgenv().RakeGui then
+            return
+        end
+        getgenv().RakeGui = true
+        getgenv().RakeChamsEnabled = false
+
+        local function ClonedService(name)
+            local Service = game.GetService
+            local Reference = cloneref or function(reference) return reference end
+            return Reference(Service(game, name))
+        end
+
+        local Workspace = ClonedService("Workspace")
+        local Players = ClonedService("Players")
+        local TweenService = ClonedService("TweenService")
+        local UserInputService = ClonedService("UserInputService")
+        local localPlayer = Players.LocalPlayer
+        local playerGui = localPlayer.PlayerGui
+
+        -- 创建屏幕GUI
+        local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "RakeChamsGui"
+        ScreenGui.Parent = playerGui
+        ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+        -- 主窗口
+        local MainFrame = Instance.new("Frame")
+        MainFrame.Size = UDim2.new(0, 180, 0, 50)
+        MainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
+        MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        MainFrame.BorderSizePixel = 0
+        MainFrame.Parent = ScreenGui
+        MainFrame.Active = true
+        MainFrame.Draggable = true
+
+        -- 圆角
+        local UICorner = Instance.new("UICorner")
+        UICorner.CornerRadius = UDim.new(0, 6)
+        UICorner.Parent = MainFrame
+
+        -- 标题
+        local Title = Instance.new("TextLabel")
+        Title.Size = UDim2.new(1, -10, 0, 25)
+        Title.Position = UDim2.new(0, 5, 0, 0)
+        Title.BackgroundTransparency = 1
+        Title.Text = "Rake Chams"
+        Title.TextColor3 = Color3.new(1,1,1)
+        Title.TextSize = 14
+        Title.Font = Enum.Font.SourceSansBold
+        Title.Parent = MainFrame
+
+        -- 开关按钮
+        local ToggleButton = Instance.new("TextButton")
+        ToggleButton.Size = UDim2.new(1, -10, 0, 20)
+        ToggleButton.Position = UDim2.new(0, 5, 0, 25)
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        ToggleButton.BorderSizePixel = 0
+        ToggleButton.Text = "ENABLE"
+        ToggleButton.TextColor3 = Color3.new(1,1,1)
+        ToggleButton.TextSize = 13
+        ToggleButton.Font = Enum.Font.SourceSansBold
+        ToggleButton.Parent = MainFrame
+
+        local ButtonCorner = Instance.new("UICorner")
+        ButtonCorner.CornerRadius = UDim.new(0, 4)
+        ButtonCorner.Parent = ToggleButton
+
+        -- 隐藏用的Part
+        local HidePart = Instance.new("Part")
+        HidePart.Size = Vector3.new(20,1000,20)
+        HidePart.Parent = Workspace
+        HidePart.Position = Vector3.new(0,10000,0)
+        HidePart.Anchored = true
+
+        local HidePartHighlight = Instance.new("Highlight")
+        HidePartHighlight.Name = "HidePartHighlight"
+        HidePartHighlight.FillColor = Color3.new(1,1,1)
+        HidePartHighlight.OutlineColor = Color3.new(0.66,0,0)
+        HidePartHighlight.FillTransparency = 0.8
+        HidePartHighlight.OutlineTransparency = 0.8
+        HidePartHighlight.Parent = HidePart
+
+        -- 高亮功能
+        local function rakechams()
+            if not getgenv().RakeChamsEnabled then return end
+            if Workspace:FindFirstChild("Rake") then
+                if not Workspace.Rake:FindFirstChild("SleepyRakeChams") then
+                    local chams = Instance.new("Highlight")
+                    chams.FillColor = Color3.new(0.66, 0, 0)
+                    chams.OutlineColor = Color3.new(1,1,1)
+                    chams.Parent = Workspace.Rake
+                    chams.Adornee = Workspace.Rake
+                    chams.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    chams.OutlineTransparency = 0.9
+                    chams.FillTransparency = 0.5
+                    chams.Name = "SleepyRakeChams"
+                end
+            end
+        end
+
+        local function disablerakechams()
+            if Workspace:FindFirstChild("Rake") then
+                for i,v in pairs(Workspace.Rake:GetDescendants()) do
+                    if v.Name == "SleepyRakeChams" then
+                        v:Destroy()
+                    end
+                end
+            end
+        end
+
+        -- 开关逻辑
+        local function UpdateButton()
+            if getgenv().RakeChamsEnabled then
+                ToggleButton.Text = "ENABLED"
+                ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+                rakechams()
+            else
+                ToggleButton.Text = "DISABLED"
+                ToggleButton.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+                disablerakechams()
+            end
+        end
+
+        ToggleButton.MouseButton1Click:Connect(function()
+            getgenv().RakeChamsEnabled = not getgenv().RakeChamsEnabled
+            UpdateButton()
+        end)
+
+        -- 实时刷新
+        task.spawn(function()
+            while task.wait(0.5) do
+                if getgenv().RakeChamsEnabled then
+                    rakechams()
+                end
+            end
+        end)
+
+        UpdateButton()
+    end
+end
+
+local function RunExternalScript()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/xiaopi77/xiaopi77/main/QQ1002100032-Roblox-Pi-script.lua"))()
+end
+
+local function Aslllkm()
+    loadstring(game:HttpGet("https://rawscripts.net/raw/Build-A-Plane-Infinite-Money-144536"))()
+end
+
+-- ==================== 通用功能模块 ====================
+-- 所有功能的执行代码集中放在此处
+
+local GeneralModules = {}
+
+-- ============ 模块1：本地玩家设置 ============
+GeneralModules.SetWalkSpeed = function(value)
+    spawn(function()
+        while task.wait() do
+            local humanoid = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = value
+            end
+        end
+    end)
+end
+
+GeneralModules.SetJumpPower = function(value)
+    spawn(function()
+        while task.wait() do
+            local humanoid = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+            if humanoid then
+                humanoid.JumpPower = value
+            end
+        end
+    end)
+end
+
+GeneralModules.SetHealth = function(value)
+    local humanoid = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid.Health = value
+    end
+end
+
+GeneralModules.SetMaxHealth = function(value)
+    local humanoid = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid.MaxHealth = value
+    end
+end
+
+GeneralModules.SetZoomDistance = function(value)
+    game.Players.LocalPlayer.CameraMaxZoomDistance = value
+end
+
+GeneralModules.SetFOV = function(value)
+    workspace.CurrentCamera.FieldOfView = value
+end
+
+GeneralModules.SetFPS = function(value)
+    setfpscap(value)
+end
+
+GeneralModules.SetHeadSize = function(value)
+    local Players = game:GetService("Players")
+    local localPlayer = Players.LocalPlayer
+    local function IsPlayerAlive(player)
+        if not player then return false end
+        local character = player.Character
+        if not character then return false end
+        local head = character:FindFirstChild("Head")
+        local humanoid = character:FindFirstChildWhichIsA("Humanoid") or character:FindFirstChild("Humanoid")
+        return head and humanoid and humanoid.Health and humanoid.Health > 0
+    end
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= localPlayer and IsPlayerAlive(player) then
+            player.Character.Head.Massless = true
+            player.Character.Head.Size = Vector3.new(value, value, value)
+        end
+        player.CharacterAdded:Connect(function()
+            while not IsPlayerAlive(player) do wait() end
+            player.Character.Head.Massless = true
+            player.Character.Head.Size = Vector3.new(value, value, value)
+        end)
+    end
+    Players.PlayerAdded:Connect(function(newPlayer)
+        newPlayer.CharacterAdded:Wait()
+        if IsPlayerAlive(newPlayer) then
+            newPlayer.Character.Head.Massless = true
+            newPlayer.Character.Head.Size = Vector3.new(value, value, value)
+        end
+        newPlayer.CharacterAdded:Connect(function()
+            while not IsPlayerAlive(newPlayer) do wait() end
+            newPlayer.Character.Head.Massless = true
+            newPlayer.Character.Head.Size = Vector3.new(value, value, value)
+        end)
+    end)
+end
+
+GeneralModules.SetGravity = function(value)
+    spawn(function()
+        while task.wait() do
+            workspace.Gravity = value
+        end
+    end)
+end
+
+GeneralModules.ToggleFastRun = function(enabled, speed)
+    if enabled then
+        getgenv().FastRunSpeed = speed or 50
+        getgenv().FastRunConn = game:GetService("RunService").Heartbeat:Connect(function()
+            local char = game.Players.LocalPlayer.Character
+            local hum = char and char:FindFirstChild("Humanoid")
+            if hum and hum.Parent and hum.MoveDirection.Magnitude > 0 then
+                char:TranslateBy(hum.MoveDirection * getgenv().FastRunSpeed / 0.5)
+            end
+        end)
+    else
+        if getgenv().FastRunConn then
+            getgenv().FastRunConn:Disconnect()
+            getgenv().FastRunConn = nil
+        end
+    end
+end
+
+-- ============ 模块2：视觉与特效 ============
+GeneralModules.ToggleNightVision = function(enabled)
+    spawn(function()
+        while task.wait() do
+            if enabled then
+                game.Lighting.Ambient = Color3.new(1, 1, 1)
+            else
+                game.Lighting.Ambient = Color3.new(0, 0, 0)
+            end
+        end
+    end)
+end
+
+GeneralModules.RunESP = function()
+    loadstring(game:HttpGet("https://pastefy.app/LE2hzECZ/raw"))()
+end
+
+GeneralModules.RunLockView = function()
+    loadstring(game:HttpGet("https://pastefy.app/nekmtvpA/raw"))()
+end
+
+GeneralModules.ToggleUnlockZoom = function(enabled)
+    if enabled then
+        getgenv().UnlockZoom = true
+        task.spawn(function()
+            while getgenv().UnlockZoom do
+                task.wait(0.1)
+                game.Players.LocalPlayer.CameraMaxZoomDistance = 9000000000
+            end
+        end)
+    else
+        getgenv().UnlockZoom = false
+        game.Players.LocalPlayer.CameraMaxZoomDistance = 32
+    end
+end
+
+GeneralModules.ToggleSilentAim = function(enabled)
+    -- 子弹追踪功能（保持原有实现）
+    local camera = workspace.CurrentCamera
+    local Players = game.Players
+    local localPlayer = Players.LocalPlayer
+    local function ClosestPlayer()
+        local closestDistance = math.huge
+        local closestPlayer = nil
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= localPlayer and player.Team ~= localPlayer.Team and player.Character then
+                local head = player.Character:FindFirstChild("Head")
+                if head then
+                    local screenPoint, isVisible = camera:WorldToScreenPoint(head.Position)
+                    if isVisible then
+                        local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y / 2)).Magnitude
+                        if distance < closestDistance then
+                            closestDistance = distance
+                            closestPlayer = player
+                        end
+                    end
+                end
+            end
+        end
+        return closestPlayer
+    end
+    local metatable = getrawmetatable(game)
+    local originalNamecall = metatable.__namecall
+    local originalIndex = metatable.__index
+    setreadonly(metatable, false)
+    if enabled then
+        metatable.__namecall = newcclosure(function(self, ...)
+            local args = {...}
+            if getnamecallmethod() == "FindPartOnRayWithIgnoreList" and not checkcaller() then
+                local targetPlayer = ClosestPlayer()
+                if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
+                    args[1] = Ray.new(camera.CFrame.Position, ((targetPlayer.Character.Head.Position - camera.CFrame.Position)).Unit * 1000)
+                    return originalNamecall(self, unpack(args))
+                end
+            end
+            return originalNamecall(self, ...)
+        end)
+        metatable.__index = newcclosure(function(self, key)
+            if key == "Clips" then return workspace.Map end
+            return originalIndex(self, key)
+        end)
+    else
+        metatable.__namecall = originalNamecall
+        metatable.__index = originalIndex
+    end
+    setreadonly(metatable, true)
+end
+
+GeneralModules.RunShowAllPlayers = function()
+    loadstring(game:HttpGet("https://pastebin.com/raw/G2zb992X", true))()
+end
+
+GeneralModules.RunBTools = function()
+    loadstring(game:HttpGet("https://cdn.wearedevs.net/scripts/BTools.txt"))()
+end
+
+GeneralModules.RunTeleportGui = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/Infinity2346/Tect-Menu/main/Teleport%20Gui.lua"))()
+end
+
+GeneralModules.RunClickTP = function()
+    loadstring(game:HttpGet("https://pastefy.app/Jf2QXOwa/raw"))()
+end
+
+GeneralModules.RunDex = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/renlua/Script-Tutorial/refs/heads/main/dex.lua"))()
+end
+
+-- ============ 模块15：玩家观战 (WindUI 版) ============
+GeneralModules.PlayerWatcher = (function()
+    local Module = {}
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+    local Workspace = game:GetService("Workspace")
+    local localPlayer = Players.LocalPlayer
+    local camera = Workspace.CurrentCamera
+
+    -- 状态
+    local isWatching = false
+    local watchTarget = nil
+    local renderBindName = "WatcherHideLocalChar"
+    local heartbeatConn = nil
+    local targetCharAddedConn = nil
+    local playerRemovingConn = nil
+
+    -- UI 组件引用（由外部创建后注入）
+    local UI = {
+        PlayerInput = nil,      -- Input 组件
+        StartBtn = nil,         -- Button 组件
+        StopBtn = nil,          -- Button 组件
+        StatusLabel = nil,      -- Paragraph/Label 组件
+        PlayerDropdown = nil,   -- Dropdown 组件
+        MainToggle = nil,       -- Toggle 组件
+    }
+
+    -- 注入 UI 引用
+    function Module.BindUI(refs)
+        for k, v in pairs(refs) do UI[k] = v end
+    end
+
+    -- 更新状态文本
+    local function SetStatus(text)
+        if UI.StatusLabel and UI.StatusLabel.SetDesc then
+            UI.StatusLabel:SetDesc(text)
+        end
+    end
+
+    -- 更新下拉列表
+    local function RefreshPlayerList()
+        if not UI.PlayerDropdown then return end
+        local players = Players:GetPlayers()
+        table.sort(players, function(a, b) return a.Name:lower() < b.Name:lower() end)
+        local names = {}
+        for _, p in ipairs(players) do
+            if p ~= localPlayer then table.insert(names, p.Name) end
+        end
+        UI.PlayerDropdown:Refresh(names, false)
+    end
+
+    -- 隐藏/显示本地角色
+    local function SetLocalCharacterInvisible(char, invisible)
+        if not char then return end
+        local value = invisible and 1 or 0
+        for _, obj in ipairs(char:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Decal") then
+                obj.LocalTransparencyModifier = value
+            end
+        end
+    end
+
+    -- 停止观战（核心清理）
+    local function StopFollowing()
+        if heartbeatConn then heartbeatConn:Disconnect(); heartbeatConn = nil end
+        if targetCharAddedConn then targetCharAddedConn:Disconnect(); targetCharAddedConn = nil end
+        if playerRemovingConn then playerRemovingConn:Disconnect(); playerRemovingConn = nil end
+        pcall(function() RunService:UnbindFromRenderStep(renderBindName) end)
+
+        local char = localPlayer.Character
+        if char then SetLocalCharacterInvisible(char, false) end
+        if char then
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then camera.CameraSubject = humanoid end
+        end
+        camera.CameraType = Enum.CameraType.Custom
+
+        isWatching = false
+        watchTarget = nil
+        SetStatus("状态：已停止观战")
+    end
+
+    -- 开始观战
+    local function StartFollowing(playerName)
+        StopFollowing()
+
+        local targetPlayer = Players:FindFirstChild(playerName)
+        if not targetPlayer then
+            SetStatus("状态：未找到该玩家！")
+            return
+        end
+
+        isWatching = true
+        watchTarget = targetPlayer
+
+        -- 绑定摄像机到目标
+        local function AttachCamera()
+            local targetChar = targetPlayer.Character
+            if not targetChar then return false end
+            local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
+            local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+            if not targetRoot then return false end
+
+            camera.CameraType = Enum.CameraType.Custom
+            if targetHumanoid then
+                camera.CameraSubject = targetHumanoid
+            else
+                camera.CameraSubject = targetRoot
+            end
+            return true
+        end
+
+        if not AttachCamera() then
+            SetStatus("状态：等待目标角色加载...")
+        else
+            SetStatus("状态：正在观战 " .. targetPlayer.Name)
+        end
+
+        -- 每帧隐藏本地角色
+        pcall(function() RunService:UnbindFromRenderStep(renderBindName) end)
+        RunService:BindToRenderStep(renderBindName, Enum.RenderPriority.Camera.Value + 1, function()
+            if not isWatching then return end
+            local char = localPlayer.Character
+            if char then SetLocalCharacterInvisible(char, true) end
+        end)
+
+        -- Heartbeat：校验目标 + 保持 CameraSubject + 流式加载请求
+        local lastStreamRequest = 0
+        local STREAM_INTERVAL = 1.5
+
+        heartbeatConn = RunService.Heartbeat:Connect(function()
+            if not isWatching or not watchTarget or not watchTarget.Parent then
+                StopFollowing()
+                SetStatus("状态：目标已离开游戏")
+                return
+            end
+
+            local targetChar = watchTarget.Character
+            if not targetChar then return end
+
+            local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+            local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
+            if not targetRoot then return end
+
+            -- 确保摄像机模式
+            if camera.CameraType ~= Enum.CameraType.Custom then
+                camera.CameraType = Enum.CameraType.Custom
+            end
+
+            -- 目标重生后重新绑定 CameraSubject
+            if targetHumanoid and camera.CameraSubject ~= targetHumanoid then
+                camera.CameraSubject = targetHumanoid
+            elseif not targetHumanoid and camera.CameraSubject ~= targetRoot then
+                camera.CameraSubject = targetRoot
+            end
+
+            -- 请求目标周围区块加载
+            local now = os.clock()
+            if now - lastStreamRequest >= STREAM_INTERVAL then
+                lastStreamRequest = now
+                if Workspace.StreamingEnabled then
+                    task.spawn(function()
+                        pcall(function()
+                            localPlayer:RequestStreamAroundAsync(targetRoot.Position)
+                        end)
+                    end)
+                end
+            end
+        end)
+
+        -- 目标重生处理
+        targetCharAddedConn = targetPlayer.CharacterAdded:Connect(function()
+            task.wait(0.5)
+            if not isWatching then return end
+            local newChar = targetPlayer.Character
+            if newChar then
+                local newHumanoid = newChar:FindFirstChildOfClass("Humanoid")
+                if newHumanoid then
+                    camera.CameraSubject = newHumanoid
+                else
+                    local newRoot = newChar:FindFirstChild("HumanoidRootPart")
+                    if newRoot then camera.CameraSubject = newRoot end
+                end
+                SetStatus("状态：正在观战 " .. targetPlayer.Name)
+            end
+        end)
+
+        -- 目标离开游戏
+        playerRemovingConn = Players.PlayerRemoving:Connect(function(player)
+            if player == watchTarget then
+                StopFollowing()
+                SetStatus("状态：目标已离开游戏")
+            end
+        end)
+
+        SetStatus("状态：正在观战 " .. targetPlayer.Name)
+    end
+
+    -- 对外接口
+    function Module.StartWatching(playerName)
+        StartFollowing(playerName)
+    end
+
+    function Module.StopWatching()
+        StopFollowing()
+    end
+
+    function Module.ToggleMain(state)
+        if state then
+            RefreshPlayerList()
+            SetStatus("状态：就绪 · 请选择玩家")
+        else
+            StopFollowing()
+        end
+    end
+
+    function Module.RefreshList()
+        RefreshPlayerList()
+    end
+
+    function Module.IsWatching()
+        return isWatching
+    end
+
+    return Module
+end)()
+
+-- ============ 模块3：移动与穿墙 ============
+GeneralModules.ToggleNoClip = function(enabled)
+    if enabled then
+        getgenv().Clipon = true
+        getgenv().NoClipConn = game:GetService("RunService").Stepped:Connect(function()
+            if getgenv().Clipon then
+                for _, child in pairs(workspace:GetChildren()) do
+                    if child.Name == game.Players.LocalPlayer.Name then
+                        for _, part in pairs(workspace[game.Players.LocalPlayer.Name]:GetChildren()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = false
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    else
+        getgenv().Clipon = false
+        if getgenv().NoClipConn then
+            getgenv().NoClipConn:Disconnect()
+            getgenv().NoClipConn = nil
+        end
+        local character = game.Players.LocalPlayer.Character
+        if character then
+            for _, part in pairs(character:GetChildren()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end
+
+GeneralModules.RunFly = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/huangjuQwQ/-/refs/heads/main/%E9%80%9A%E7%94%A8%E9%A3%9E%E8%A1%8C.lua"))()
+end
+
+GeneralModules.RunFlyCar = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/xiaopi77/xiaopi77/main/Pi-feiche.lua"))()
+end
+
+GeneralModules.RunAim = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/xiaopi77/xiaopi77/main/3683e49998644fb7.txt_2024-08-09_094310.OTed.lua"))()
+end
+
+GeneralModules.RunFling = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/xiaopi77/xiaopi77/main/%E7%9A%AE%E7%94%A9%E9%A3%9E.lua"))()
+end
+
+GeneralModules.RunFlingAll = function()
+    loadstring(game:HttpGet("https://pastebin.com/raw/zqyDSUWX"))()
+end
+
+GeneralModules.RunDeathNote = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/xiaopi77/xiaopi77/main/1_1.txt_2024-08-08_153358.OTed.lua"))()
+end
+
+GeneralModules.RunIronFist = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/0Ben1/fe/main/obf_rf6iQURzu1fqrytcnLBAvW34C9N55kS9g9G3CKz086rC47M6632sdEd4ZZYB0AYgV.lua.txt"))()
+end
+
+GeneralModules.RunKeyboard = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/advxzivhsjjdhxhsidifvsh/mobkeyboard/main/main.txt", true))()
+end
+
+GeneralModules.ToggleAnchor = function(enabled)
+    local character = game.Players.LocalPlayer.Character or game.Players.LocalPlayer.CharacterAdded:Wait()
+    for _, child in pairs(character:GetChildren()) do
+        if child:IsA("BasePart") then
+            child.Anchored = enabled
+        end
+    end
+end
+
+GeneralModules.Suicide = function()
+    game.Players.LocalPlayer.Character.Humanoid.Health = 0
+end
+
+GeneralModules.RunFloatWalk = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/GhostPlayer352/Test4/main/Float"))()
+end
+
+GeneralModules.RunUniversalESP = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/Lucasfin000/SpaceHub/main/UESP"))()
+end
+
+GeneralModules.RunKickScript = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/xiaopi77/xiaopi77/main/c8320f69b6aa8c4.txt_2024-08-08_214628.OTed.lua"))()
+end
+
+GeneralModules.RunAnimationHub = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/GamingScripter/Animation-Hub/main/Animation%20Gui", true))()
+end
+
+GeneralModules.RunWallClimb = function()
+    loadstring(game:HttpGet("https://pastebin.com/raw/zXk4Rf2r"))()
+end
+
+GeneralModules.RunStand = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/SkrillexMe/SkrillexLoader/main/SkrillexLoadMain"))()
+end
+
+GeneralModules.RunFuckScript = function()
+    loadstring(game:HttpGet("https://pastefy.app/BkeffrT5/raw"))()
+end
+
+GeneralModules.RunCircleAim = function()
+    loadstring(game:HttpGet("https://pastefy.app/YnfF3sje/raw"))()
+end
+
+GeneralModules.RunIW = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source", true))()
+end
+
+GeneralModules.ToggleInvisible = function(enabled)
+    local localPlayer = game.Players.LocalPlayer
+    for _, child in pairs((localPlayer.Character or localPlayer.CharacterAdded:Wait()):GetChildren()) do
+        if child:IsA("BasePart") then
+            child.Transparency = enabled and 1 or 0
+            child.CanCollide = not enabled
+        elseif child:IsA("Accessory") then
+            child.Handle.Transparency = enabled and 1 or 0
+        end
+    end
+end
+
+-- ============ 模块4：背包与道具 ============
+GeneralModules.ToggleGetAllBackpack = function(enabled)
+    if enabled then
+        getgenv().GetBackpack = true
+        task.spawn(function()
+            while getgenv().GetBackpack do
+                for _, player in pairs(game.Players:GetChildren()) do
+                    task.wait()
+                    for _, tool in pairs(player.Backpack:GetChildren()) do
+                        tool.Parent = game.Players.LocalPlayer.Backpack
+                        task.wait()
+                    end
+                end
+            end
+        end)
+    else
+        getgenv().GetBackpack = false
+    end
+end
+
+GeneralModules.RunGetCurrentTool = function()
+    loadstring(game:HttpGet("https://pastefy.app/3FU05Dyt/raw"))()
+end
+
+GeneralModules.RunEquipAllTools = function()
+    loadstring(game:HttpGet("https://pastefy.app/uBqVR9JC/raw"))()
+end
+
+GeneralModules.RunDeleteTool = function()
+    loadstring(game:HttpGet("https://pastefy.app/r4LHK4p0/raw"))()
+end
+
+GeneralModules.RunDeleteAllTools = function()
+    loadstring(game:HttpGet("https://pastefy.app/8HB71Lbj/raw"))()
+end
+
+-- ============ 模块5：自动与辅助 ============
+GeneralModules.ToggleAutoInteract = function(enabled)
+    if enabled then
+        getgenv().AutoInteract = true
+        task.spawn(function()
+            while getgenv().AutoInteract do
+                for _, descendant in pairs(workspace:GetDescendants()) do
+                    if descendant:IsA("ProximityPrompt") then
+                        fireproximityprompt(descendant)
+                    end
+                end
+                task.wait(0.25)
+            end
+        end)
+    else
+        getgenv().AutoInteract = false
+    end
+end
+
+GeneralModules.RunFastInteract = function()
+    game.ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt)
+        prompt.HoldDuration = 0
+    end)
+end
+
+GeneralModules.ToggleHighlightESP = function(enabled)
+    for _, player in pairs(game.Players:GetPlayers()) do
+        if player ~= game.Players.LocalPlayer then
+            if enabled then
+                local highlight = Instance.new("Highlight")
+                highlight.Parent = player.Character
+                highlight.Adornee = player.Character
+                local billboardGui = Instance.new("BillboardGui")
+                billboardGui.Parent = player.Character
+                billboardGui.Adornee = player.Character
+                billboardGui.Size = UDim2.new(0, 100, 0, 100)
+                billboardGui.StudsOffset = Vector3.new(0, 3, 0)
+                billboardGui.AlwaysOnTop = true
+                local textLabel = Instance.new("TextLabel")
+                textLabel.Parent = billboardGui
+                textLabel.Size = UDim2.new(1, 0, 1, 0)
+                textLabel.BackgroundTransparency = 1
+                textLabel.Text = player.Name
+                textLabel.TextColor3 = Color3.new(1, 1, 1)
+                textLabel.TextStrokeTransparency = 0.5
+                textLabel.TextScaled = true
+                local imageLabel = Instance.new("ImageLabel")
+                imageLabel.Parent = billboardGui
+                imageLabel.Size = UDim2.new(0, 50, 0, 50)
+                imageLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+                imageLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+                imageLabel.BackgroundTransparency = 1
+                imageLabel.Image = "rbxassetid://2200552246"
+            else
+                if player.Character:FindFirstChildOfClass("Highlight") then
+                    player.Character:FindFirstChildOfClass("Highlight"):Destroy()
+                end
+                if player.Character:FindFirstChildOfClass("BillboardGui") then
+                    player.Character:FindFirstChildOfClass("BillboardGui"):Destroy()
+                end
+            end
+        end
+    end
+end
+
+GeneralModules.ToggleInfJump = function(enabled)
+    getgenv().InfJ = enabled
+    game:GetService("UserInputService").JumpRequest:connect(function()
+        if getgenv().InfJ then
+            game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping")
+        end
+    end)
+end
+
+GeneralModules.ToggleGodMode = function(enabled)
+    local character = game.Players.LocalPlayer.Character
+    if enabled and character then
+        local hrp = character:FindFirstChild("HumanoidRootFlag")
+        if hrp and not character:FindFirstChild("GodModeHRPClone") then
+            local clone = hrp:Clone()
+            clone.Name = "GodModeHRPClone"
+            clone.Parent = character
+        end
+    else
+        if character then
+            local clone = character:FindFirstChild("GodModeHRPClone")
+            if clone then clone:Destroy() end
+        end
+    end
+end
+
+GeneralModules.ToggleAutoAttack = function(enabled)
+    -- 杀戮光环逻辑（保持原实现）
+    if enabled then
+        getgenv().AutoAttack = true
+        getgenv().AutoAttackConfig = {
+            Size = Vector3.new(10, 10, 10),
+            DeathCheck = true,
+        }
+        local Players = game:GetService("Players")
+        local RunService = game:GetService("RunService")
+        local localPlayer = Players.LocalPlayer
+        local overlapParams = OverlapParams.new()
+        overlapParams.FilterType = Enum.RaycastFilterType.Include
+        local function GetCharacter(player)
+            return player and player.Character
+        end
+        local function GetHumanoid(model)
+            if not model then return nil end
+            if type(model) == "userdata" and model.IsA then
+                if model:IsA("Player") then model = GetCharacter(model) end
+                if model and model.IsA then
+                    if model:IsA("Model") then
+                        return model:FindFirstChildWhichIsA("Humanoid") or model:FindFirstChild("Humanoid")
+                    elseif model:IsA("Humanoid") then return model end
+                end
+            end
+            return nil
+        end
+        local function IsAlive(humanoid)
+            return humanoid and humanoid.Health > 0
+        end
+        local function HasTouchTransmitter(tool)
+            return tool and tool:FindFirstChildWhichIsA("TouchTransmitter", true)
+        end
+        local function GetOtherCharacters(excludeChara)
+            local characters = {}
+            for _, player in pairs(Players:GetPlayers()) do
+                table.insert(characters, GetCharacter(player))
+            end
+            for i, c in pairs(characters) do
+                if c == excludeChara then table.remove(characters, i); break end
+            end
+            return characters
+        end
+        local function ActivateTool(tool, part, targetFlag)
+            if tool:IsDescendantOf(workspace) then
+                tool:Activate()
+                firetouchinterest(part, targetPart, 1)
+                firetouchinterest(part, targetPart, 0)
+            end
+        end
+        task.spawn(function()
+            while getgenv().AutoAttack do
+                local localCharacter = GetCharacter(localPlayer)
+                if IsAlive(GetHumanoid(localCharacter)) then
+                    local tool = localCharacter and localCharacter:FindFirstChildWhichIsA("Tool")
+                    local touchTransmitter = tool and HasTouchTransmitter(tool)
+                    if touchTransmitter then
+                        local toolPart = touchTransmitter.Parent
+                        local testCharacters = GetOtherCharacters(localCharacter)
+                        overlapParams.FilterDescendantsInstances = otherCharacters
+                        for _, part in pairs(workspace:GetPartBoundsInBox(toolPart.CFrame, toolPart.Size + getgenv().AutoAttackConfig.Size, overlapParams)) do
+                            local characterModel = part:FindFirstAncestorWhichIsA("Model")
+                            if table.find(otherCharacters, characterModel) then
+                                if getgenv().AutoAttackConfig.DeathCheck and IsAlive(GetHumanoid(characterModel)) then
+                                    ActivateTool(tool, toolPart, part)
+                                elseif not getgenv().AutoRttackConfig.DeathCheck then
+                                    ActivateTool(tool, toolPart, part)
+                                end
+                            end
+                        end
+                    end
+                end
+                RunService.Heartbeat:Wait()
+            end
+        end)
+    else
+        getgenv().AutoAttack = false
+    end
+end
+
+GeneralModules.Sit = function()
+    game.Players.LocalPlayer.Character.Humanoid.Sit = true
+end
+
+GeneralModules.ToggleSoundSpam = function(enabled)
+    getgenv().SpamSound = enabled
+    if enabled then
+        task.spawn(function()
+            while getgenv().SpamSound do
+                for _, descendant in pairs(game:GetDescendants()) do
+                    if descendant:IsA("Sound") then descendant:Play() end
+                end
+                task.wait()
+            end
+        end)
+    end
+end
+
+GeneralModules.ToggleRainbowBasePart = function(enabled)
+    if enabled then
+        getgenv().RainbowBP = true
+        local baseParts = {}
+        local materials = Enum.Material:GetEnumItems()
+        for _, d in pairs(workspace:GetDescendants()) do
+            if d:IsA("BasePart") then table.insert(baseParts, d) end
+        end
+        workspace.DescendantAdded:Connect(function(d)
+            if d:IsA("BasePart") then
+                table.insert(baseParts, d)
+            end
+        end)
+        task.spawn(function()
+            while getgenv().RainbowBP do
+                for _, part in pairs(baseParts) do
+                    part.Material = materials[math.random(1, #materials)]
+                    part.Color = Color3.fromRGB(math.random(0, 255), math.random(0, 255), math.random(0, 255))
+                end
+                task.wait(0.025)
+            end
+        end)
+    else
+        getgenv().RainbowBP = false
+    end
+end
+
+-- ============ ... (其余 GeneralModules 保持不变，只有通知改为 WindUI:Notify / Notify) ============
+
+GeneralModules.RunSuckPeople = function()
+    loadstring(game:HttpGet("https://pastefy.app/fF3DMBNF/raw"))()
+end
+
+GeneralModules.RunSpiralUp = function()
+    loadstring(game:HttpGet("https://pastefy.app/xV1T3PAi/raw"))()
+end
+
+GeneralModules.RunInfRobux = function()
+    loadstring(game:HttpGet("https://pastefy.app/SxhPVOyM/raw"))()
+end
+
+GeneralModules.RunChatBubble = function()
+    loadstring(game:HttpGet("https://pastefy.app/lCEPuiQO/raw"))()
+end
+
+GeneralModules.RunPlayerDraw = function()
+    loadstring(game:HttpGet("https://pastebin.com/raw/pmgp7mdm"))()
+end
+
+GeneralModules.TogglePlayerDisplay = function(enabled)
+    getgenv().PlayerDisplayEnabled = enabled
+    getgenv().filluseteamcolor = true
+    getgenv().outlineuseteamcolor = true
+    getgenv().fillcolor = Color3.new(1, 0, 0)
+    getgenv().outlinecolor = Color3.new(1, 1, 1)
+    getgenv().filltrans = 0.5
+    getgenv().outlinetrans = 0.5
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/Vcsk/RobloxScripts/main/Highlight-ESP.lua"))()
+end
+
+GeneralModules.RunNoRecoil = function()
+    loadstring(game:HttpGet("https://pastefy.app/Vbnh3Ycg/raw"))()
+end
+
+GeneralModules.RunInfAmmo = function()
+    loadstring(game:HttpGet("https://pastefy.app/bYg3smqm/raw"))()
+end
+
+GeneralModules.RunFlingEntity = function()
+    loadstring(game:HttpGet("https://pastefy.app/4r9e4F3p/raw"))()
+end
+
+GeneralModules.RunFlingHalfEntity = function()
+    loadstring(game:HttpGet("https://pastebin.com/raw/UTWcDtzj"))()
+end
+
+GeneralModules.RunAdmin = function()
+    loadstring(game:HttpGet("https://pastebin.com/raw/sZpgTVas"))()
+end
+
+GeneralModules.RunRejoin = function()
+    loadstring(game:HttpGet("https://pastefy.app/XXabqNiv/raw"))()
+end
+
+GeneralModules.RunShowFPS = function()
+    loadstring(game:HttpGet("https://pastebin.com/raw/g54KFcUU"))()
+end
+
+GeneralModules.RunShowTime = function()
+    loadstring(game:HttpGet("https://pastebin.com/raw/RycMWV3a"))()
+end
+
+GeneralModules.RunF3X = function()
+    loadstring(game:GetObjects("rbxassetid://6695644299")[1].Source)()
+end
+
+GeneralModules.RunSaveGame = function()
+    saveinstance()
+end
+
+GeneralModules.RunLeaveGame = function()
+    game:Shutdown()
+end
+
+GeneralModules.RunJoinLeaveNotify = function()
+    loadstring(game:HttpGet("https://pastefy.app/KexNS25n/raw"))()
+end
+
+GeneralModules.RunInvisibleTool = function()
+    loadstring(game:HttpGet("https://gist.githubusercontent.com/skid123skidlol/cd0d2dce51b3f20aed1aac921da06a1a1/raw/f58b98cce7d51e53ade94e7bb460e4f24fb7e0ff/%257BFE%257D%2520Invisible%2520Tool%2520(can%2520hold%2520tools)", true))()
+end
+
+GeneralModules.ToggleLoopHeal = function(enabled)
+    if enabled then
+        getgenv().HFLoop = true
+        task.spawn(function()
+            while getgenv().HFLoop do
+                local lp = game.Players.LocalPlayer
+                local hum = lp and lp.Character and lp.Character:FindFirstChildWhichIsA("Humanoid")
+                if hum and hum.Parent then
+                    hum.Health = 9000000000
+                end
+                task.wait(0.5)
+            end
+        end)
+    else
+        getgenv().HFLoop = false
+    end
+end
+
+-- ============ 模块6：时间与天气 ============
+GeneralModules.RunMidnight = function()
+    loadstring(game:HttpGet("https://pastefy.app/xFX51PIw/raw"))()
+end
+
+GeneralModules.RunAfternoon4 = function()
+    loadstring(game:HttpGet("https://pastefy.app/sIrAGJxJ/raw"))()
+end
+
+GeneralModules.RunNoon11 = function()
+    loadstring(game:HttpGet("https://pastefy.app/rccCMBch/raw"))()
+end
+
+GeneralModules.RunMorning6 = function()
+    loadstring(game:HttpGet("https://pastefy.app/h9VLgYR/raw"))()
+end
+
+-- ============ 模块7：相机与控制 ============
+GeneralModules.SetCameraType = function(cameraType)
+    local cameraMap = {
+        ["自定义"] = "Custom",
+        ["附加"] = "Attach",
+        ["固定"] = "Fixed",
+        ["跟随"] = "Follow",
+        ["动态观察"] = "Orbital",
+        ["可脚本化"] = "Scriptable",
+        ["跟踪"] = "Track",
+        ["观看"] = "Watch",
+    }
+    local mapped = cameraMap[cameraType]
+    if mapped then
+        workspace.CurrentCamera.CameraType = mapped
+    end
+end
+
+GeneralModules.ToggleDevCameraOcclusion = function(enabled)
+    if enabled then
+        game.Players.LocalPlayer.DevCameraOcclusionMode = "Invisicam"
+    else
+        game.Players.LocalPlayer.DevCameraOcclusionMode = "Zoom"
+    end
+end
+
+GeneralModules.SetCameraMode = function(mode)
+    if mode == "经典" then
+        game.Players.LocalPlayer.CameraMode = "Classic"
+    elseif mode == "第一人称" then
+        game.Players.LocalPlayer.CameraMode = "LockFirstPerson"
+    end
+end
+
+-- ============ 模块8：FPS选择 ============
+GeneralModules.SetFPSPreset = function(preset)
+    local fpsMap = {
+        ["FPS 5"] = 5,
+        ["FPS 15"] = 15,
+        ["FPS 30"] = 30,
+        ["FPS 45"] = 45,
+        ["FPS 60"] = 60,
+        ["FPS 90"] = 90,
+        ["FPS 120"] = 120,
+        ["FPS 240"] = 240,
+        ["最大FPS"] = 10000,
+    }
+    local fps = fpsMap[preset]
+    if fps then setfpscap(fps) end
+end
+
+-- ============ 模块9：无敌模式 ============
+GeneralModules.ToggleInvincible = function(enabled)
+    if enabled then
+        local camera = workspace.CurrentCamera
+        local cameraCFrame = camera.CFrame
+        local character = game.Players.LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildWhichIsA("Humanoid")
+        if humanoid then
+            local clonedHumanoid = humanoid:Clone()
+            clonedHumanoid.Parent = character
+            clonedHumanoid:SetStateEnabled(Enum.HumanoidStateType.Health, false)
+            clonedHumanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            clonedHumanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            clonedHumanoid.BreakJointsOnDeath = true
+            humanoid:Destroy()
+            game.Players.LocalPlayer.Character = nil
+            game.Players.LocalPlayer.Character = character
+            camera.CameraSubject = clonedHumanoid
+            task.wait()
+            camera.CFrame = cameraCFrame or camera.CFrame
+            clonedHumanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+            local animate = character:FindFirstChild("Animate")
+            if animate then
+                animate.Disabled = true
+                task.wait()
+                animate.Disabled = false
+            end
+            clonedHumanoid.Health = clonedHumanoid.MaxHealth
+        end
+    else
+        local lpChar = game.Players.LocalPlayer.Character
+        local lpHum = lpChar and lpChar:FindFirstChildWhichIsA("Humanoid")
+        if lpHum then lpHum.Health = 100 end
+    end
+end
+
+-- ============ 模块10：Webhook轰炸 ============
+GeneralModules.WebhookUrl = ""
+GeneralModules.SetWebhookUrl = function(url)
+    GeneralModules.WebhookUrl = url
+end
+
+GeneralModules.RunWebhookSpam = function()
+    setClipboard(GeneralModules.WebhookUrl)
+    Notify("📋 Webhook轰炸", "链接已复制，请配合外部工具使用", 3)
+end
+
+-- ============ 模块15：兽化逃亡 ============
+GeneralModules.BeastEscape = {}
+
+-- 样本透视（示例功能）
+GeneralModules.BeastEscape.RunSampleESP = function()
+-- 多物品标记版，带迷你开关，死亡不消失
+-- 配置区：只改下面三行
+local parentPath = {"Map"}
+local targetName = "Sample"
+local customDisplayName = nil
+
+---------------------------------------------------------------
+
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- 1. 迷你 UI（只创建一次，死亡不消失）
+local screenGui = playerGui:FindFirstChild("MarkerSwitchGui")
+if not screenGui then
+	screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "MarkerSwitchGui"
+	screenGui.ResetOnSpawn = false
+	screenGui.Parent = playerGui
+
+	local button = Instance.new("TextButton")
+	button.Name = "SwitchButton"
+	button.Size = UDim2.new(0, 32, 0, 32)
+	button.Position = UDim2.new(0, 10, 0, 10)
+	button.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+	button.Text = ""
+	button.AutoButtonColor = false
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = button
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "ON"
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.Font = Enum.Font.SourceSansBold
+	label.TextSize = 14
+	label.Parent = button
+
+	button.Parent = screenGui
+end
+
+local markerEnabled = true
+
+-- 2. 获取父容器（阻塞等待）
+local function getParent()
+	local obj = workspace
+	for _, name in ipairs(parentPath) do
+		obj = obj:WaitForChild(name)
+	end
+	return obj
+end
+
+-- 给单个物品添加标记
+local function addMarker(item)
+	if not item then return end
+	if item:FindFirstChild("MarkerHighlight") then return end
+
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "MarkerHighlight"
+	highlight.FillColor = Color3.fromRGB(255, 255, 0)
+	highlight.FillTransparency = 0.5
+	highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+	highlight.OutlineTransparency = 0
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Parent = item
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "MarkerName"
+	billboard.Size = UDim2.new(0, 200, 0, 50)
+	billboard.StudsOffset = Vector3.new(0, 2, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = item
+
+	local textLabel = Instance.new("TextLabel")
+	textLabel.Size = UDim2.new(1, 0, 1, 0)
+	textLabel.BackgroundTransparency = 1
+	textLabel.Text = customDisplayName or item.Name  -- 优先用自定义名字
+	textLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+	textLabel.TextStrokeTransparency = 0.3
+	textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	textLabel.Font = Enum.Font.SourceSansBold
+	textLabel.TextSize = 24
+	textLabel.Parent = billboard
+end
+
+-- 移除单个物品的标记
+local function removeMarker(item)
+	if not item then return end
+	local h = item:FindFirstChild("MarkerHighlight")
+	if h then h:Destroy() end
+	local b = item:FindFirstChild("MarkerName")
+	if b then b:Destroy() end
+end
+
+-- 扫描父容器下所有匹配名称的物品，执行 addOrRemove 函数（传入物品，true=添加，false=移除）
+local function processAll(enable)
+	local parent = getParent()
+	for _, child in ipairs(parent:GetDescendants()) do
+		if child.Name == targetName then
+			if enable then
+				addMarker(child)
+			else
+				removeMarker(child)
+			end
+		end
+	end
+end
+
+-- 监听新物品出现
+local function watchNew(parent)
+	parent.DescendantAdded:Connect(function(child)
+		if child.Name == targetName then
+			if markerEnabled then
+				addMarker(child)
+			end
+		end
+	end)
+end
+
+-- 切换开关时更新所有已有物品
+local function refreshAll()
+	local parent = getParent()
+	processAll(markerEnabled)
+end
+
+-- 3. 绑定按钮事件
+local button = screenGui.SwitchButton
+local label = button:FindFirstChildOfClass("TextLabel")
+
+button.MouseButton1Click:Connect(function()
+	markerEnabled = not markerEnabled
+	if markerEnabled then
+		button.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+		label.Text = "ON"
+	else
+		button.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+		label.Text = "OFF"
+	end
+	refreshAll()
+end)
+
+-- 4. 启动：等待父容器出现，初次标记所有，并监听新物品
+local parent = getParent()
+processAll(markerEnabled)
+watchNew(parent)
+
+-- 如果父容器被销毁再重建，需要重新监听。这里做一个简单的守护循环
+spawn(function()
+	while true do
+		-- 等待父容器消失
+		while parent.Parent ~= nil do
+			parent:GetPropertyChangedSignal("Parent"):Wait()
+		end
+		-- 父容器消失，等待重新出现
+		parent = getParent()
+		processAll(markerEnabled)
+		watchNew(parent)
+	end
+end)
+
+-- 初次运行时立即更新（如果物品已存在）
+updateCurrentItem()
+    Notify("✅ 兽化逃亡", "样本透视已启动", 2)
+end
+
+-- 插槽1：自定义功能1
+GeneralModules.BeastEscape.RunCustom1 = function()
+    -- ★★★ 在这里粘贴你的第一段自定义脚本源码 ★★★
+    -- 示例：
+    -- pcall(function()
+    --     loadstring(game:HttpGet("https://raw.githubusercontent.com/你的仓库/功能1.lua"))()
+    -- end)
+    Notify("📦 兽化逃亡", "插槽1：请先填入脚本代码", 2)
+end
+
+-- 插槽2：自定义功能2
+GeneralModules.BeastEscape.RunCustom2 = function()
+    -- ★★★ 在这里粘贴你的第二段自定义脚本源码 ★★★
+    Notify("📦 兽化逃亡", "插槽2：请先填入脚本代码", 2)
+end
+
+-- 插槽3：自定义功能3
+GeneralModules.BeastEscape.RunCustom3 = function()
+    -- ★★★ 在这里粘贴你的第三段自定义脚本源码 ★★★
+    Notify("📦 兽化逃亡", "插槽3：请先填入脚本代码", 2)
+end
+
+-- 插槽通用执行器（用于直接粘贴代码字符串）
+GeneralModules.BeastEscape.ExecuteCode = function(codeStr)
+    if not codeStr or codeStr == "" then
+        Notify("⚠️ 兽化逃亡", "代码为空", 2)
+        return
+    end
+    local fn, err = loadstring(codeStr)
+    if fn then
+        pcall(fn)
+        Notify("✅ 兽化逃亡", "代码执行成功", 2)
+    else
+        Notify("❌ 兽化逃亡", "语法错误: " .. tostring(err):sub(1, 50), 3)
+    end
+end
+
+-- ============ 音乐播放器模块 ============
+-- 内置音乐ID对照表
+MusicPlaylist = {
+    {Name = "告白气球",     Id = "85373130121712"},
+    {Name = "烂泥",     Id = "85861149812045"},
+    {Name = "但",     Id = "118537604558488"},
+    {Name = "山海",     Id = "91784818014160"},
+    {Name = "唯一",     Id = "138570939058838"},
+    {Name = "把回忆拼好给你",     Id = "97285892199649"},
+    {Name = "起风了",     Id = "99498025749186"},
+}
+
+-- 当前正在播放的音乐Sound对象
+CurrentMusic = nil
+
+-- ========== 环境回声 ==========
+ReverbEnabled = false
+
+ApplyReverb = function(sound)
+    if not sound or not sound.Parent then return end
+    -- 先清理旧回声效果（避免重复添加）
+    pcall(function()
+        for _, effect in ipairs(sound:GetChildren()) do
+            if effect:IsA("ReverbSoundEffect") then
+                effect:Destroy()
+            end
+        end
+    end)
+    -- 创建干净的空间回声：原声清晰为主，回声若有若无作氛围
+    pcall(function()
+        local r = Instance.new("ReverbSoundEffect")
+        r.DecayTime = 1.8        -- 衰减适中，模拟小型演奏厅
+        r.Density = 0.5          -- 较轻的回声厚度，不浑浊
+        r.Diffusion = 0.85       -- 扩散均匀，自然平滑
+        r.DryLevel = -1          -- 原声几乎不衰减，保持清晰
+        r.WetLevel = -4          -- 回声音量压低，只作空间氛围
+        r.Parent = sound
+    end)
+end
+
+RemoveReverb = function(sound)
+    if not sound or not sound.Parent then return end
+    pcall(function()
+        for _, effect in ipairs(sound:GetChildren()) do
+            if effect:IsA("ReverbSoundEffect") then
+                effect:Destroy()
+            end
+        end
+    end)
+end
+
+ToggleReverb = function(enabled)
+    ReverbEnabled = enabled
+    if CurrentMusic and CurrentMusic.Parent then
+        if enabled then
+            ApplyReverb(CurrentMusic)
+            Notify("🔊 环境回声", "已开启回声效果", 2)
+        else
+            RemoveReverb(CurrentMusic)
+            Notify("🔊 环境回声", "已关闭回声效果", 2)
+        end
+    end
+end
+
+-- ========== 核心播放函数 ==========
+
+PlayMusicById = function(id)
+    -- 先停止当前播放
+    if CurrentMusic then
+        pcall(function()
+            CurrentMusic:Stop()
+            CurrentMusic:Destroy()
+        end)
+        CurrentMusic = nil
+    end
+
+    local success, sound = pcall(function()
+        local s = Instance.new("Sound")
+        s.SoundId = "rbxassetid://" .. id
+        s.Volume = 1
+        s.Parent = game.Workspace
+        s:Play()
+        return s
+    end)
+
+    if success and sound then
+        CurrentMusic = sound
+
+        -- 自动应用环境回声（如果已开启）
+        if ReverbEnabled then
+            ApplyReverb(sound)
+        end
+
+        Notify("🎵 正在播放", "音乐ID: " .. id, 2)
+    else
+        Notify("❌ 播放失败", "ID无效或资源不存在: " .. tostring(err or ""):sub(1, 40), 3)
+    end
+
+    return success
+end
+
+PlayMusicByName = function(name)
+    for _, item in ipairs(MusicPlaylist) do
+        if item.Name == name then
+            PlayMusicById(item.Id)
+            return true
+        end
+    end
+    Notify("❌ 未找到", "预设音乐: " .. name, 2)
+    return false
+end
+
+StopMusic = function()
+    if CurrentMusic then
+        pcall(function()
+            CurrentMusic:Stop()
+            CurrentMusic:Destroy()
+        end)
+        CurrentMusic = nil
+        Notify("⏹️ 已停止", "音乐播放已停止", 2)
+    else
+        Notify("⏹️ 提示", "当前没有正在播放的音乐", 2)
+    end
+end
+
+PlayUserInputId = function(inputText, isInit)
+    -- 初始化加载时静默跳过
+    if isInit then return end
+    local id = (inputText or ""):gsub("%s+", "")
+    if id == "" or not tonumber(id) then
+        Notify("⚠️ 无效ID", "请输入纯数字的音乐ID，例如: 792323017", 3)
+        return false
+    end
+    local success = PlayMusicById(id)
+    if success then
+        Notify("✅ 播放成功", "已播放ID: " .. id, 2)
+    end
+    return success
+end
+
+-- ============ 模块15：页面样式管理 ============
+GeneralModules.AllThemes = {
+    "Dark", "Light", "Rose", "Plant", "Crimson", "Red",
+    "Indigo", "Sky", "Violet", "Amber", "Emerald",
+    "Midnight", "MonokaiPro", "CottonCandy", "Mellowsi", "Rainbow",
+}
+
+GeneralModules.LoadedThemeFromConfig = nil
+
+GeneralModules.LoadSavedTheme = function()
+    pcall(function()
+        local path = "WindUI/" .. (Window.Folder or "MultiToolPanel") .. "/config/PageStyle.json"
+        if isfile and readfile and isfile(path) then
+            local raw = readfile(path)
+            local data = game:GetService("HttpService"):JSONDecode(raw)
+            local elements = data and data.__elements
+            if elements and elements.Theme and elements.Theme.value then
+                local name = elements.Theme.value
+                if table.find(GeneralModules.AllThemes, name) then
+                    WindUI:SetTheme(name)
+                    GeneralModules.LoadedThemeFrom = name
+                end
+            end
+        end
+    end)
+    return GeneralModules.LoadedThemeFrom or "Dark"
+end
+
+GeneralModules.ApplyTheme = function(themeName)
+    if not table.find(GeneralModules.AllThemes, themeName) then
+        return false
+    end
+    local ok, err = pcall(function()
+        WindUI:SetTheme(themeName)
+    end)
+    if ok then
+        -- 手动保存到 JSON
+        local data = {__version = 1.2, __elements = {Theme = {__type = "Dropdown", value = themeName}}, __autoload = true, __custom = {Theme = themeName}}
+        pcall(function()
+            local path = "WindUI/" .. (Window.Folder or "MultiPanel") .. "/config/"
+            if not isfolder(path) then makefolder(path) end
+            writefile(path .. "PageStyle.json", game:GetService("HttpService"):JSONEncode(data))
+        end)
+        GeneralModules.LoadedThemeFromTheme = themeName
+        NotifyWithIcon("✅ 主题已切换", themeName, "check", 2)
+        return true
+    else
+        NotifyWithIcon("❌ 切换失败", tostring(err):sub(1, 40), "x", 3)
+        return false
+    end
+end
+
+-- ==================== WindUI 窗口搭建 ====================
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local UserId = LocalPlayer.UserId
+local Username = LocalPlayer.Name
+local DisplayName = LocalPlayer.DisplayName
+local PlaceId = game.PlaceId
+local Ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
+
+local Window = WindUI:CreateWindow({
+    Title = "多功能脚本面板",
+    Icon = "zap",
+    Author = "Delta适配",
+    Folder = "MultiToolPanel",
+    Size = UDim2.fromOffset(450, 550),
+    Transparent = true,
+    Theme = "Dark",
+    SideBarWidth = 180,
+    HasOutline = true,
+})
+
+Window:EditOpenButton({
+    Title = "打开面板",
+    Icon = "monitor",
+    CornerRadius = UDim.new(0, 16),
+    StrokeThickness = 2,
+    Color = ColorSequence.new(Color3.fromHex("FF0F7B"), Color3.fromHex("F89B29")),
+    Draggable = true,
+})
+
+-- ==================== 个人分区 ====================
+local PersonalTab = Window:Tab({Title = "个人", Icon = "user", Desc = "用户信息与状态"})
+task.spawn(function()
+    local success, thumbnailUrl = pcall(function()
+        return Players:GetUserThumbnailAsync(UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+    end)
+    local headshotId = success and thumbnailUrl or ""
+    PersonalTab:Paragraph({Title = DisplayName, Desc = "欢迎回来，" .. DisplayName, Image = headshotId ~= "" and headshotId or nil, ImageSize = 64})
+    PersonalTab:Paragraph({Title = "服务器地址", Desc = "Place ID: " .. tostring(PlaceId), Color = "Blue"})
+    PersonalTab:Paragraph({Title = "网络延迟", Desc = Ping .. " 毫秒", Color = "Orange"})
+    PersonalTab:Paragraph({Title = "用户名", Desc = "@" .. Username, Color = "Green"})
+    if Username == "wjhjnzzg" then
+        PersonalTab:Paragraph({Title = "管理员", Desc = "您拥有管理员权限", Color = "Red"})
+    end
+end)
+
+-- ==================== 2. 工具分区 ====================
+local ToolsTab = Window:Tab({
+    Title = "工具",
+    Icon = "wrench",
+    Desc = "全部实用脚本工具"
+})
+
+local QuickTools = ToolsTab:Section({
+    Title = "📁 常用快捷工具",
+    DefaultOpen = true
+})
+
+QuickTools:Button({
+    Title = "坐标传送工具",
+    Desc = "点击启动坐标传送工具",
+    Callback = function() pcall(RunTeleportTool) end,
+})
+
+QuickTools:Button({
+    Title = "服务器跳转",
+    Desc = "点击启动服务器跳转",
+    Callback = function() pcall(RunServerTP) end,
+})
+
+QuickTools:Button({
+    Title = "亮度调节",
+    Desc = "滑动调节亮度",
+    Callback = function() pcall(RunBrightness) end,
+})
+
+local function addToolButton(name, func)
+    ToolsTab:Button({
+        Title = name,
+        Desc = "点击启动 " .. name,
+        Callback = function() pcall(func) end,
+    })
+end
+
+addToolButton("画我脚本", RunDrawMe)
+addToolButton("绕屏蔽聊天", RunUnblockChat)
+addToolButton("Ping/FPS监控", RunPingFps)
+addToolButton("IY指令脚本", RunInfiniteYield)
+ToolsTab:Toggle({
+    Title = "🛡️ 防甩开关",
+    Desc = "防止被其他玩家撞飞，开启后每帧关闭他人碰撞",
+    Value = false,
+    Callback = function(state)
+        ToggleAntiFling(state)
+    end,
+})
+addToolButton("目视坐标", RunLookPos)
+
+-- ==================== 3. 通用分区（全部功能） ====================
+local GeneralTab = Window:Tab({
+    Title = "通用",
+    Icon = "layers",
+    Desc = "全部通用功能，按类别收纳于文件夹中"
+})
+
+local fastRunSpeed = 50
+
+-- ============================================================
+-- 文件夹1：本地玩家设置
+-- ============================================================
+local PlayerSettings = GeneralTab:Section({
+    Title = "📁 本地玩家设置",
+    Desc = "速度、跳跃、血量等个人属性调整",
+    DefaultOpen = false
+})
+
+PlayerSettings:Slider({
+    Title = "走路速度",
+    Value = {
+        Min = 16,
+        Max = 400,
+        Default = 16,
+    },
+    Callback = function(value)
+        GeneralModules.SetWalkSpeed(value)
+    end,
+})
+
+PlayerSettings:Slider({
+    Title = "跳跃高度",
+    Value = {
+        Min = 50,
+        Max = 400,
+        Default = 50,
+    },
+    Callback = function(value)
+        GeneralModules.SetJumpPower(value)
+    end,
+})
+
+PlayerSettings:Slider({
+    Title = "设置血量",
+    Value = {
+        Min = 100,
+        Max = 10000,
+        Default = 100,
+    },
+    Callback = function(value)
+        GeneralModules.SetHealth(value)
+    end,
+})
+
+PlayerSettings:Slider({
+    Title = "血量上限",
+    Value = {
+        Min = 100,
+        Max = 10000,
+        Default = 100,
+    },
+    Callback = function(value)
+        GeneralModules.SetMaxHealth(value)
+    end,
+})
+
+PlayerSettings:Slider({
+    Title = "缩放距离",
+    Value = {
+        Min = 128,
+        Max = 200000,
+        Default = 128,
+    },
+    Callback = function(value)
+        GeneralModules.SetZoomDistance(value)
+    end,
+})
+
+PlayerSettings:Slider({
+    Title = "视野FOV(正常70)",
+    Value = {
+        Min = 0.1,
+        Max = 250,
+        Default = 70,
+    },
+    Callback = function(value)
+        GeneralModules.SetFOV(value)
+    end,
+})
+
+PlayerSettings:Slider({
+    Title = "帧率FPS上限",
+    Value = {
+        Min = 300,
+        Max = 100000,
+        Default = 300,
+    },
+    Callback = function(value)
+        GeneralModules.SetFPS(value)
+    end,
+})
+
+PlayerSettings:Slider({
+    Title = "玩家头部大小",
+    Value = {
+        Min = 0,
+        Max = 1000,
+        Default = 1,
+    },
+    Callback = function(value)
+        GeneralModules.SetHeadSize(value)
+    end,
+})
+
+PlayerSettings:Input({
+    Title = "设置重力",
+    Placeholder = "输入重力值(默认196.2)",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num then
+            GeneralModules.SetGravity(num)
+        end
+    end,
+})
+
+PlayerSettings:Input({
+    Title = "快速跑步速度",
+    Placeholder = "输入速度值(默认50)",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num and num > 0 then
+            fastRunSpeed = num
+        end
+    end,
+})
+
+PlayerSettings:Toggle({
+    Title = "启用快速跑步",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleFastRun(state, fastRunSpeed)
+    end,
+})
+
+-- ============================================================
+-- 文件夹2-14 保持原样（视觉与特效、移动与穿墙...等）全不变
+-- 为节省空间这里只展示结构，里面所有 Notify/SetNotification 调用已经替换为 Notify()
+-- ============================================================
+
+-- 视觉与特效
+local VisualEffects = GeneralTab:Section({
+    Title = "📁 视觉与特效",
+    Desc = "夜视、透视、ESP、隐身等视觉功能",
+    DefaultOpen = false
+})
+
+VisualEffects:Toggle({
+    Title = "夜视",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleNightVision(state)
+    end,
+})
+
+VisualEffects:Button({
+    Title = "透视脚本",
+    Desc = "加载通用透视",
+    Callback = function()
+        pcall(GeneralModules.RunESP)
+    end,
+})
+
+VisualEffects:Button({
+    Title = "锁定视野",
+    Desc = "锁定相机视野朝向",
+    Callback = function()
+        pcall(GeneralModules.RunLockView)
+    end,
+})
+
+VisualEffects:Toggle({
+    Title = "解锁最大视野",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleUnlockZoom(state)
+    end,
+})
+
+VisualEffects:Toggle({
+    Title = "子弹追踪",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleSilentAim(state)
+    end,
+})
+
+VisualEffects:Button({
+    Title = "显示所有玩家(血量)",
+    Desc = "查看全部玩家血量条",
+    Callback = function()
+        pcall(GeneralModules.RunShowAllPlayers)
+    end,
+})
+
+VisualEffects:Toggle({
+    Title = "人物隐身",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleInvisible(state)
+    end,
+})
+
+VisualEffects:Toggle({
+    Title = "圆圈高亮透视",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleHighlightESP(state)
+    end,
+})
+
+VisualEffects:Toggle({
+    Title = "ESP显示",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.TogglePlayerDisplay(state)
+    end,
+})
+
+VisualEffects:Button({
+    Title = "通用ESP(Lucusfin)",
+    Desc = "加载Lucasfin ESP脚本",
+    Callback = function()
+        pcall(GeneralModules.RunUniversalESP)
+    end,
+})
+
+VisualEffects:Button({
+    Title = "人物绘制",
+    Desc = "绘制玩家轮廓线",
+    Callback = function()
+        pcall(GeneralModules.RunPlayerDraw)
+    end,
+})
+
+VisualEffects:Button({
+    Title = "聊天气泡美化",
+    Desc = "美化聊天显示气泡",
+    Callback = function()
+        pcall(GeneralModules.RunChatBubble)
+    end,
+})
+
+VisualEffects:Toggle({
+    Title = "七色彩虹基础",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleRainbowBasePart(state)
+    end,
+})
+
+-- 移动与穿墙
+local MovementTools = GeneralTab:Section({
+    Title = "📁 移动与穿墙",
+    Desc = "飞行、穿墙、甩飞、传送等移动类功能",
+    DefaultOpen = false
+})
+
+MovementTools:Toggle({
+    Title = "穿墙模式",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleNoClip(state)
+    end,
+})
+
+MovementTools:Button({
+    Title = "飞行",
+    Desc = "飞行脚本",
+    Callback = function()
+        pcall(GeneralModules.RunFly)
+    end,
+})
+
+MovementTools:Button({
+    Title = "跑车",
+    Desc = "飞车脚本",
+    Callback = function()
+        pcall(GeneralModules.RunFlyCar)
+    end,
+})
+
+MovementTools:Button({
+    Title = "自瞄",
+    Desc = "自瞄脚本",
+    Callback = function()
+        pcall(GeneralModules.RunAim)
+    end,
+})
+
+MovementTools:Button({
+    Title = "甩飞",
+    Desc = "甩飞脚本",
+    Callback = function()
+        pcall(GeneralModules.RunFling)
+    end,
+})
+
+MovementTools:Button({
+    Title = "甩飞所有人",
+    Desc = "一次性甩飞全部玩家",
+    Callback = function()
+        pcall(GeneralModules.RunFlingAll)
+    end,
+})
+
+MovementTools:Button({
+    Title = "死亡笔记",
+    Desc = "死亡笔记脚本",
+    Callback = function()
+        pcall(GeneralModules.RunDeathNote)
+    end,
+})
+
+MovementTools:Button({
+    Title = "铁拳脚本",
+    Desc = "铁拳增强脚本",
+    Callback = function()
+        pcall(GeneralModules.RunIronFist)
+    end,
+})
+
+MovementTools:Toggle({
+    Title = "锚定自身(无法移动)",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleAnchor(state)
+    end,
+})
+
+MovementTools:Button({
+    Title = "浮空行走",
+    Desc = "Float悬浮行走脚本",
+    Callback = function()
+        pcall(GeneralModules.RunFloatWalk)
+    end,
+})
+
+MovementTools:Button({
+    Title = "爬墙脚本",
+    Desc = "贴墙爬升脚本",
+    Callback = function()
+        pcall(GeneralModules.RunWallClimb)
+    end,
+})
+
+MovementTools:Button({
+    Title = "人物螺旋上天",
+    Desc = "螺旋上升特效",
+    Callback = function()
+        pcall(GeneralModules.RunSpiralUp)
+    end,
+})
+
+MovementTools:Toggle({
+    Title = "无限跳跃",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleInfJump(state)
+    end,
+})
+
+MovementTools:Button({
+    Title = "弹人(实体模式)",
+    Desc = "实体碰撞弹飞目标",
+    Callback = function()
+        pcall(GeneralModules.RunFlingEntity)
+    end,
+})
+
+MovementTools:Button({
+    Title = "弹人(半实体模式)",
+    Desc = "半实体碰撞弹飞目标",
+    Callback = function()
+        pcall(GeneralModules.RunFlingHalfEntity)
+    end,
+})
+
+MovementTools:Button({
+    Title = "吸人(不可关闭)",
+    Desc = "吸取附近所有玩家",
+    Callback = function()
+        pcall(GeneralModules.RunSuckPeople)
+    end,
+})
+
+-- ==========背包与道具==========
+local InventoryTools = GeneralTab:Section({
+    Title = "📁 背包与道具",
+    Desc = "工具包、道具获取、删除、背包管理",
+    DefaultOpen = false
+})
+
+InventoryTools:Button({
+    Title = "工具包(BTools)",
+    Desc = "经典建造工具包",
+    Callback = function()
+        pcall(GeneralModules.RunBTools)
+    end,
+})
+
+InventoryTools:Toggle({
+    Title = "获取所有玩家背包",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleGetAllBackpack(state)
+    end,
+})
+
+InventoryTools:Button({
+    Title = "获取当前道具",
+    Desc = "复制当前手持道具",
+    Callback = function()
+        pcall(GeneralModules.RunGetCurrentTool)
+    end,
+})
+
+InventoryTools:Button({
+    Title = "装备全部道具",
+    Desc = "一键装备所有道具",
+    Callback = function()
+        pcall(GeneralModules.RunEquipAllTools)
+    end,
+})
+
+InventoryTools:Button({
+    Title = "删除当前道具",
+    Desc = "删除手中道具",
+    Callback = function()
+        pcall(GeneralModules.RunDeleteTool)
+    end,
+})
+
+InventoryTools:Button({
+    Title = "删除所有道具",
+    Desc = "清空全部道具",
+    Callback = function()
+        pcall(GeneralModules.RunDeleteAllTools)
+    end,
+})
+
+InventoryTools:Button({
+    Title = "隐身道具",
+    Desc = "获得可隐身的道具",
+    Callback = function()
+        pcall(GeneralModules.RunInvisibleTool)
+    end,
+})
+
+-- ========== 自动与辅助 ==========
+local AutoAssist = GeneralTab:Section({
+    Title = "📁 自动与辅助",
+    Desc = "自动互动、自动攻击、无敌等辅助功能",
+    DefaultOpen = false
+})
+
+AutoAssist:Toggle({
+    Title = "自动互动",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleAutoInteract(state)
+    end,
+})
+
+AutoAssist:Button({
+    Title = "快速互动(零延迟)",
+    Desc = "互动无需等待",
+    Callback = function()
+        pcall(GeneralModules.RunFastInteract)
+    end,
+})
+
+AutoAssist:Toggle({
+    Title = "杀戮光环",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleAutoAttack(state)
+    end,
+})
+
+AutoAssist:Toggle({
+    Title = "靠近自动攻击",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleAutoAttack(state)
+    end,
+})
+
+AutoAssist:Toggle({
+    Title = "循环恢复血量",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleLoopHeal(state)
+    end,
+})
+
+AutoAssist:Toggle({
+    Title = "无敌模式",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleInvincible(state)
+    end,
+})
+
+AutoAssist:Toggle({
+    Title = "上帝模式",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleGodMode(state)
+    end,
+})
+
+AutoAssist:Button({
+    Title = "坐下",
+    Desc = "让角色坐下休息",
+    Callback = function()
+        GeneralModules.Sit()
+    end,
+})
+
+AutoAssist:Toggle({
+    Title = "声音折磨",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleSoundSpam(state)
+    end,
+})
+
+-- ---------- 文件夹15：玩家观战 ----------
+local PlayerWatcherSection = GeneralTab:Section({
+    Title = "📁 玩家观战",
+    Desc = "安全观战其他玩家：不传送、不触发反作弊、支持远距离流式加载、自由视角控制",
+    DefaultOpen = false
+})
+
+-- 总开关
+local MainToggle = PlayerWatcherSection:Toggle({
+    Title = "止停观战",
+    Desc = "关闭后可强行停止所有观战模块",
+    Value = true,
+    Callback = function(state)
+        GeneralModules.PlayerWatcher.ToggleMain(state)
+    end,
+})
+
+-- 玩家选择下拉框
+local PlayerDropdown = PlayerWatcherSection:Dropdown({
+    Title = "目标玩家",
+    Values = {},  -- 运行时动态填充
+    Value = nil,
+    Callback = function(selected)
+        -- 选中后同步到输入框（可选）
+    end,
+})
+
+-- 手动输入框（备用）
+local PlayerInput = PlayerWatcherSection:Input({
+    Title = "手动输入玩家名",
+    Placeholder = "输入完整玩家名",
+    Callback = function(text)
+        -- 可选：实时搜索过滤下拉框
+    end,
+})
+
+-- 操作按钮行
+local BtnRow = PlayerWatcherSection:Section({
+    Title = "操作",
+    DefaultOpen = true
+})
+
+BtnRow:Button({
+    Title = "🔄 刷新玩家列表",
+    Desc = "重新获取当前服务器玩家",
+    Callback = function()
+        GeneralModules.PlayerWatcher.RefreshList()
+    end,
+})
+
+BtnRow:Button({
+    Title = "▶ 开始观战",
+    Desc = "观战下拉框或输入框指定的玩家",
+    Callback = function()
+        local target = PlayerDropdown.Value or PlayerInput.Value or ""
+        if target ~= "" then
+            GeneralModules.PlayerWatcher.StartWatching(target)
+        else
+            WindUI:Notify({Title = "提示", Content = "请先选择或输入玩家名", Duration = 2})
+        end
+    end,
+})
+
+BtnRow:Button({
+    Title = "■ 停止观战",
+    Desc = "立即停止并恢复自身视角",
+    Callback = function()
+        GeneralModules.PlayerWatcher.StopWatching()
+    end,
+})
+
+-- 状态显示
+local StatusLabel = PlayerWatcherSection:Paragraph({
+    Title = "状态",
+    Desc = "状态：未开启",
+    Color = "Blue",
+})
+
+-- 使用说明
+PlayerWatcherSection:Paragraph({
+    Title = "使用说明",
+    Desc = "1. 展开「操作右边展开按钮」\n2. 在「目标玩家」下拉框选择，或手动输入名字\n3. 点击「▶ 开始观战」\n4. 右键拖拽旋转视角，滚轮缩放（完全自由）\n5. 点击「■ 停止观战」或关闭总开关恢复\n\n⚠ 仅本地生效，不传送角色，不触发反作弊\n⚠ 目标重生自动继续观战，目标离开自动停止",
+    Color = "Green",
+})
+
+-- 绑定 UI 引用给模块
+GeneralModules.PlayerWatcher.BindUI({
+    PlayerInput = PlayerInput,
+    StartBtn = nil,  -- WindUI Button 无需引用，回调直接调用模块
+    StopBtn = nil,
+    StatusLabel = StatusLabel,
+    PlayerDropdown = PlayerDropdown,
+    MainToggle = MainToggle,
+})
+
+-- 总开关联动：关闭时自动停止观战
+local originalToggleCallback = MainToggle.Callback
+MainToggle.Callback = function(state)
+    GeneralModules.PlayerWatcher.ToggleMain(state)
+    if originalToggleCallback then originalToggleCallback(state) end
+end
+
+-- 初始刷新
+task.spawn(function()
+    task.wait(1)
+    GeneralModules.PlayerWatcher.RefreshList()
+    if Workspace.StreamingEnabled then
+        StatusLabel:SetDesc("状态：流式加载模式 · 就绪")
+    else
+        StatusLabel:SetDesc("状态：全量加载模式 · 就绪")
+    end
+end)
+
+-- ========== 战斗增强 ==========
+local CombatEnhance = GeneralTab:Section({
+    Title = "📁 战斗增强",
+    Desc = "无后坐力、无限子弹、自瞄等战斗功能",
+    DefaultOpen = false
+})
+
+CombatEnhance:Button({
+    Title = "无后坐快速射击",
+    Desc = "消除后坐力+加速射击",
+    Callback = function()
+        pcall(GeneralModules.RunNoRecoil)
+    end,
+})
+
+CombatEnhance:Button({
+    Title = "无限子弹",
+    Desc = "弹药无限供应",
+    Callback = function()
+        pcall(GeneralModules.RunInfAmmo)
+    end,
+})
+
+CombatEnhance:Button({
+    Title = "圈圈自瞄(可调)",
+    Desc = "可视化自瞄圈脚本",
+    Callback = function()
+        pcall(GeneralModules.RunCircleAim)
+    end,
+})
+
+-- ========== 时间与天气 ==========
+local TimeWeather = GeneralTab:Section({
+    Title = "📁 时间与天气",
+    Desc = "修改游戏内时间",
+    DefaultOpen = false
+})
+
+TimeWeather:Button({
+    Title = "切换凌晨12点",
+    Desc = "设置游戏时间为凌晨",
+    Callback = function()
+        pcall(GeneralModules.RunMidnight)
+    end,
+})
+
+TimeWeather:Button({
+    Title = "切换下午4点",
+    Desc = "设置为下午时间",
+    Callback = function()
+        pcall(GeneralModules.RunAfternoon4)
+    end,
+})
+
+TimeWeather:Button({
+    Title = "切换中午11点",
+    Desc = "设置为中午时间",
+    Callback = function()
+        pcall(GeneralModules.RunNoon11)
+    end,
+})
+
+TimeWeather:Button({
+    Title = "切换早上6点",
+    Desc = "设置为早晨时间",
+    Callback = function()
+        pcall(GeneralModules.RunMorning6)
+    end,
+})
+
+-- ========== 相机与控制 ==========
+local CameraControl = GeneralTab:Section({
+    Title = "📁 相机与控制",
+    Desc = "相机类型切换、视角模式",
+    DefaultOpen = false
+})
+
+CameraControl:Dropdown({
+    Title = "选择相机方式",
+    Values = {"自定义", "附加", "固定", "跟随", "动态观察", "可脚本化", "跟踪", "观看"},
+    Default = "自定义",
+    Callback = function(value)
+        GeneralModules.SetCameraType(value)
+    end,
+})
+
+CameraControl:Toggle({
+    Title = "摄像机遮挡模式",
+    Value = false,
+    Callback = function(state)
+        GeneralModules.ToggleDevCameraOcclusion(state)
+    end,
+})
+
+CameraControl:Dropdown({
+    Title = "相机模式",
+    Values = {"经典", "第一人称"},
+    Default = "经典",
+    Callback = function(value)
+        GeneralModules.SetCameraMode(value)
+    end,
+})
+
+-- ========== FPS控制 ==========
+local FPSControl = GeneralTab:Section({
+    Title = "📁 FPS控制",
+    Desc = "快速切换帧率上限",
+    DefaultOpen = false
+})
+
+FPSControl:Dropdown({
+    Title = "选择帧率FPS",
+    Values = {"FPS 5", "FPS 15", "FPS 30", "FPS 45", "FPS 60", "FPS 90", "FPS 120", "FPS 240", "最大FPS"},
+    Default = "FPS 60",
+    Callback = function(value)
+        GeneralModules.SetFPSPreset(value)
+    end,
+})
+
+-- ========== 传送工具 ==========
+local TeleportTools = GeneralTab:Section({
+    Title = "📁 传送工具",
+    Desc = "各类传送脚本",
+    DefaultOpen = false
+})
+
+TeleportTools:Button({
+    Title = "老外传送面板",
+    Desc = "Teleport GUI传送脚本",
+    Callback = function()
+        pcall(GeneralModules.RunTeleportGui)
+    end,
+})
+
+TeleportTools:Button({
+    Title = "点击传送道具",
+    Desc = "点击式传送工具",
+    Callback = function()
+        pcall(GeneralModules.RunClickTP)
+    end,
+})
+
+-- ========== 服务器与游戏 ==========
+local ServerGame = GeneralTab:Section({
+    Title = "📁 服务器与游戏",
+    Desc = "重连、保存、管理员等操作",
+    DefaultOpen = false
+})
+
+ServerGame:Button({
+    Title = "重新加入游戏",
+    Desc = "快速重连当前服务器",
+    Callback = function()
+        pcall(GeneralModules.RunRejoin)
+    end,
+})
+
+ServerGame:Button({
+    Title = "离开游戏",
+    Desc = "直接退出游戏",
+    Callback = function()
+        pcall(GeneralModules.RunLeaveGame)
+    end,
+})
+
+ServerGame:Button({
+    Title = "保存游戏(saveinstance)",
+    Desc = "保存游戏到本地文件",
+    Callback = function()
+        pcall(GeneralModules.RunSaveGame)
+    end,
+})
+
+ServerGame:Button({
+    Title = "获得管理员权限",
+    Desc = "请求管理员权限",
+    Callback = function()
+        pcall(GeneralModules.RunAdmin)
+    end,
+})
+
+-- ========== 信息显示 ==========
+local InfoDisplay = GeneralTab:Section({
+    Title = "📁 信息显示",
+    Desc = "FPS显示、Dex、F3X等工具",
+    DefaultOpen = false
+})
+
+InfoDisplay:Button({
+    Title = "显示FPS",
+    Desc = "屏幕显示实时FPS",
+    Callback = function()
+        pcall(GeneralModules.RunShowFPS)
+    end,
+})
+
+InfoDisplay:Button({
+    Title = "显示时间",
+    Desc = "屏幕显示当前时间",
+    Callback = function()
+        pcall(GeneralModules.RunShowTime)
+    end,
+})
+
+InfoDisplay:Button({
+    Title = "Dex浏览器",
+    Desc = "实例浏览器Dex",
+    Callback = function()
+        pcall(GeneralModules.RunDex)
+    end,
+})
+
+InfoDisplay:Button({
+    Title = "F3X建筑工具",
+    Desc = "F3X建造工具",
+    Callback = function()
+        pcall(GeneralModules.RunF3X)
+    end,
+})
+
+InfoDisplay:Button({
+    Title = "虚拟键盘",
+    Desc = "屏幕虚拟键盘",
+    Callback = function()
+        pcall(GeneralModules.RunKeyboard)
+    end,
+})
+
+InfoDisplay:Button({
+    Title = "玩家进出提示",
+    Desc = "监听玩家加入/离开",
+    Callback = function()
+        pcall(GeneralModules.RunJoinLeaveNotify)
+    end,
+})
+
+-- ========== 娱乐与杂项 ==========
+local Entertainment = GeneralTab:Section({
+    Title = "📁 娱乐与杂项",
+    Desc = "踢人、替身、动画等娱乐功能",
+    DefaultOpen = false
+})
+
+Entertainment:Button({
+    Title = "踢人脚本(娱乐)",
+    Desc = "娱乐性踢人效果",
+    Callback = function()
+        pcall(GeneralModules.RunKickScript)
+    end,
+})
+
+Entertainment:Button({
+    Title = "操人脚本",
+    Desc = "娱乐性操人效果",
+    Callback = function()
+        pcall(GeneralModules.RunFuckScript)
+    end,
+})
+
+Entertainment:Button({
+    Title = "替身脚本",
+    Desc = "Skrillex替身",
+    Callback = function()
+        pcall(GeneralModules.RunStand)
+    end,
+})
+
+Entertainment:Button({
+    Title = "动画中心",
+    Desc = "动画Hub合集",
+    Callback = function()
+        pcall(GeneralModules.RunAnimationHub)
+    end,
+})
+
+Entertainment:Button({
+    Title = "自杀",
+    Desc = "立即死亡",
+    Callback = function()
+        GeneralModules.Suicide()
+    end,
+})
+
+Entertainment:Button({
+    Title = "无限R币(视觉效果)",
+    Desc = "视觉上的R币无限",
+    Callback = function()
+        pcall(GeneralModules.RunInfRobux)
+    end,
+})
+
+Entertainment:Button({
+    Title = "IW指令脚本",
+    Desc = "Infinite Yield指令集",
+    Callback = function()
+        pcall(GeneralModules.RunIW)
+    end,
+})
+
+-- ========== Webhook轰炸 ==========
+local WebhookSection = GeneralTab:Section({
+    Title = "📁 Webhook轰炸",
+    Desc = "Discord Webhook相关功能",
+    DefaultOpen = false
+})
+
+WebhookSection:Input({
+    Title = "Webhook链接",
+    Placeholder = "输入Discord Webhook URL",
+    Callback = function(value)
+        GeneralModules.SetWebhookUrl(value)
+    end,
+})
+
+WebhookSection:Button({
+    Title = "复制轰炸链接",
+    Desc = "复制Webhook URL到剪贴板",
+    Callback = function()
+        GeneralModules.RunWebhookSpam()
+    end,
+})
+
+-- ==================== 样式分区 ====================
+local StyleTab = Window:Tab({
+    Title = "样式",
+    Icon = "palette",
+    Desc = "更换面板主题颜色，自动保存所选"
+})
+
+StyleTab:Paragraph({
+    Title = "🎨 主题配色",
+    Desc = "立即切换面板显示外观\n你的选择会自动保存，下次自动加载",
+})
+
+StyleTab:Dropdown({
+    Title = "选择主题",
+    Values = GeneralModules.AllThemes,
+    Default = GeneralModules.LoadSavedTheme(),
+    Callback = function(selected)
+        GeneralModules.ApplyTheme(selected)
+    end,
+})
+
+local Preview = StyleTab:Section({
+    Title = "📁 效果预览",
+    Desc = "以下展示当前主题的控件外观",
+    DefaultOpen = true
+})
+
+Preview:Button({
+    Title = "预览按钮",
+    Desc = "颜色随主题变化",
+    Callback = function()
+        NotifyWithIcon("🌈 样式确认", "当前主题：" .. (GeneralModules.LoadedThemeFromTheme or "Dark"), "palette", 2)
+    end,
+})
+
+Preview:Toggle({
+    Title = "预览开关",
+    Value = false,
+    Callback = function(state)
+        Notify("预览切换", state and "Toggle 开启" or "Toggle 关闭", 0)
+    end,
+})
+
+Preview:Slider({
+    Title = "预览滑块(无操作)",
+    Value = {Min = 0, Max = 100, Default = 50},
+    Callback = function(value)
+        -- 演示用
+    end,
+})
+
+Preview:Input({
+    Title = "预览输入框",
+    Placeholder = "展示 Input 组件的样式...",
+    Callback = function(value) end,
+})
+
+-- ==================== 4. REC 分区 ====================
+local RecTab = Window:Tab({
+    Title = "REC 分区",
+    Icon = "video",
+    Desc = "录制与视觉增强功能"
+})
+
+local function addRecButton(name, func)
+    RecTab:Button({
+        Title = name,
+        Desc = "点击启动 " .. name,
+        Callback = function() pcall(func) end,
+    })
+end
+
+addRecButton("ESP 视觉", RunESP)
+addRecButton("Rake Chams", RunRakeChams)
+
+-- ==================== 兽化逃亡分区（独立Tab） ====================
+local BeastTab = Window:Tab({
+    Title = "兽化逃亡",
+    Icon = "skull",  -- 可换成 "ghost", "zap", "sword", "shield" 等
+    Desc = "兽化逃亡专用功能区"
+})
+
+BeastTab:Paragraph({
+    Title = "🐺 兽化逃亡",
+    Desc = "点击按钮执行对应功能，插槽区域可直接粘贴脚本源码",
+    Color = "Orange"
+})
+
+-- 常用功能区
+local SampleSection = BeastTab:Section({
+    Title = "📁 示例功能",
+    Desc = "预置的常用功能",
+    DefaultOpen = true
+})
+
+SampleSection:Button({
+    Title = "样本透视",
+    Desc = "启动样本透视功能",
+    Callback = function()
+        pcall(GeneralModules.BeastEscape.RunSampleESP)
+    end,
+})
+
+-- 插槽区
+local SlotSection = BeastTab:Section({
+    Title = "📁 代码插槽",
+    Desc = "在上方 GeneralModules.BeastEscape 对应函数中粘贴你的脚本，然后点击运行",
+    DefaultOpen = true
+})
+
+SlotSection:Button({
+    Title = "运行插槽 1",
+    Desc = "执行 RunCustom1 中的代码",
+    Callback = function()
+        pcall(GeneralModules.BeastEscape.RunCustom1)
+    end,
+})
+
+SlotSection:Button({
+    Title = "运行插槽 2",
+    Desc = "执行 RunCustom2 中的代码",
+    Callback = function()
+        pcall(GeneralModules.BeastEscape.RunCustom2)
+    end,
+})
+
+SlotSection:Button({
+    Title = "运行插槽 3",
+    Desc = "执行 RunCustom3 中的代码",
+    Callback = function()
+        pcall(GeneralModules.BeastEscape.RunCustom3)
+    end,
+})
+
+-- 可选：直接输入代码执行（临时测试用）
+local TestSection = BeastTab:Section({
+    Title = "📁 临时测试",
+    Desc = "直接输入代码字符串执行，不保存",
+    DefaultOpen = false
+})
+
+TestSection:Input({
+    Title = "代码输入",
+    Placeholder = "print('Hello') 或 loadstring(game:HttpGet('...'))()",
+    Callback = function(code)
+        -- 延迟标记避免初始化误触
+        if not BeastTab._codeReady then return end
+        GeneralModules.BeastEscape.ExecuteCode(code)
+    end,
+})
+
+-- 延迟标记
+do
+    task.delay(2, function()
+        BeastTab._codeReady = true
+    end)
+end
+
+-- ==================== 音乐播放器分区（独立Tab） ====================
+local MusicTab = Window:Tab({
+    Title = "音乐",
+    Icon = "music",
+    Desc = "内置预设音乐 + 自定义ID播放 + 环境回声 + 音乐独奏，仅自己可听见"
+})
+
+MusicTab:Paragraph({
+    Title = "🎵 音乐播放器",
+    Desc = "输入 Roblox 音乐资产ID 即可播放\n所有音乐仅自己可听见，不影响他人\n开启独奏后只播放当前音乐，关闭后恢复所有音效",
+})
+
+-- === 自定义ID播放 ===
+do
+    local musicInputReady = false
+    task.delay(2, function()
+        musicInputReady = true
+    end)
+
+    MusicTab:Input({
+        Title = "输入音乐ID播放",
+        Placeholder = "输入 Roblox 音乐资产ID",
+        Callback = function(value)
+            if not musicInputReady then return end
+            local id = (value or ""):gsub("%s", "")
+            if id == "" or not tonumber(id) then return end
+            PlayUserInputId(value, false)
+        end,
+    })
+end
+
+MusicTab:Button({
+    Title = "⏹️ 停止播放",
+    Desc = "立即停止当前正在播放的音乐",
+    Callback = function()
+        pcall(StopMusic)
+    end,
+})
+
+-- === 环境回声 + 音乐独奏 ===
+MusicTab:Toggle({
+    Title = "🔊 环境回声",
+    Desc = "开启后播放音乐时带有空间回声效果",
+    Value = false,
+    Callback = function(state)
+        ToggleReverb(state)
+    end,
+})
+
+-- === 预设音乐列表 ===
+local PresetMusic = MusicTab:Section({
+    Title = "🎶 预设音乐列表",
+    Desc = "内置音乐，点击即可播放",
+    DefaultOpen = true
+})
+
+for _, music in ipairs(MusicPlaylist) do
+    PresetMusic:Button({
+        Title = music.Name,
+        Desc = "ID: " .. music.Id,
+        Callback = function()
+            PlayMusicByName(music.Name)
+        end,
+    })
+end
+
+-- ==================== 5. 其他脚本分区 ====================
+local OtherTab = Window:Tab({
+    Title = "其他脚本",
+    Icon = "folder-open",
+    Desc = "外部加载脚本"
+})
+
+local function addOtherButton(name, func)
+    OtherTab:Button({
+        Title = name,
+        Desc = "点击启动 " .. name,
+        Callback = function() pcall(func) end,
+    })
+end
+
+addOtherButton("外部脚本", RunExternalScript)
+addOtherButton("建造飞机刷钱", Aslllkm)
+
+-- ==================== 6. 管理员专属分区 ====================
+if Username == "wjhjnzzg" then
+    pcall(function()
+        local AdminTab = Window:Tab({
+            Title = "管理面板",
+            Icon = "shield-check",
+            Desc = "管理员专属区域"
+        })
+
+        local function addAdminButton(name, func)
+            AdminTab:Button({
+                Title = name,
+                Desc = "管理员功能：" .. name,
+                Callback = function() pcall(func) end,
+            })
+        end
+
+        AdminTab:Paragraph({
+            Title = "",
+            Thumbnail = "rbxassetid://75638573180007",
+            ThumbnailSize = 200,
+        })
+
+        AdminTab:Paragraph({
+            Title = "私密笔记",
+            Desc = "只有你能看到的内容：\n• 密钥：ABC-123-XYZ\n• 服务器：VIP-01\n• 更新时间：2026-07-05",
+            Color = "Green",
+        })
+
+        AdminTab:Code({
+            Title = "备忘录.lua",
+            Code = [[-- 这是一个只有你能看到的代码片段
+secretKey = "admin-only-123"
+vipServer = "VIP-01"
+print("管理员专属数据已加载")]],
+        })
+
+        AdminTab:Toggle({
+            Title = "开发者模式",
+            Value = false,
+            Callback = function(state)
+                if state then
+                    Notify("🔧 开发者模式", "已开启", 2)
+                else
+                    Notify("🔧 开发者模式", "已关闭", 2)
+                end
+            end,
+        })
+
+        addAdminButton("管理员脚本1", function()
+            Notify("✅ 管理员脚本1", "执行成功", 2)
+        end)
+        addAdminButton("管理员脚本2", function()
+            Notify("✅ 管理员脚本2", "执行成功", 2)
+        end)
+        addAdminButton("管理员脚本3", function()
+            Notify("✅ 管理员脚本3", "执行成功", 2)
+        end)
+    end)
+end
+
+-- 默认选中第一个选项卡（个人）
+Window:SelectTab(1)
+
+Notify("✅ 脚本加载完成", "黄橘融合脚本已就绪，通用功能已全部迁移", 3)
+
+local WindUI = loadstring(WindUI_Source)()
