@@ -1,3 +1,9 @@
 {
-  "whitelist": []
+  "whitelist": [
+    {
+      "username": "awa",
+      "expires": "2026-08-25 01:17:21",
+      "note": "手动添加 2026-08-24 01:17"
+    }
+  ]
 }
