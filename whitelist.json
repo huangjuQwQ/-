@@ -1,4 +1,19 @@
 {
-  "whitelist"
+  "whitelist": [
+    {
+      "username": "wjhjnzzg",
+      "expires": "2026-12-31 23:59:59",
+      "note": "管理员"
+    },
+    {
+      "username": "玩家名2",
+      "expires": "2026-08-31",
+      "note": "测试用户"
+    },
+    {
+      "username": "玩家名3",
+      "expires": "",
+      "note": "永久白名单"
+    }
   ]
 }
